@@ -1,0 +1,1319 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+  <title>Pokéwalker Virtual — Allan</title>
+  <meta name="description" content="Emulação 100% fiel do Pokéwalker — HeartGold/SoulSilver"/>
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json"/>
+  <meta name="theme-color" content="#0d1117"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Pokéwalker"/>
+  <link rel="apple-touch-icon" href="icone-192.png"/>
+  <link rel="icon" type="image/png" sizes="192x192" href="icone-192.png"/>
+  <link rel="icon" type="image/png" sizes="512x512" href="icone-512.png"/>
+  <script>
+    if("serviceWorker" in navigator){
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js");
+      });
+    }
+  </script>
+  <!-- React + Babel via CDN (funciona offline após primeiro carregamento) -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html, body { background:#0d1117; min-height:100vh; font-family:'Courier New',monospace; }
+    body { overflow-x:hidden; }
+    /* Scrollbar */
+    ::-webkit-scrollbar { width:4px; }
+    ::-webkit-scrollbar-thumb { background:#30363d; border-radius:4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+// ═══════════════════════════════════════════════════════════════
+// 27 ROTAS COMPLETAS — dados reais (altissimo1.github.io + serebii)
+// Divisão: 8 pré-Pokédex Nacional, 12 pós-Pokédex Nacional, 7 Eventos
+// ═══════════════════════════════════════════════════════════════
+const ROUTES = [
+  // ── PRÉ-POKÉDEX NACIONAL ──────────────────────────────────
+  {
+    id:"refreshing_field", name:"Refreshing Field", watts:0, nat:false, event:false,
+    types:["Fire","Bug","Flying"],
+    pokemon:[
+      {group:"A",name:"Kangaskhan",gender:"♀",level:8, steps:3000,weight:50},
+      {group:"A",name:"Doduo",     gender:"♀",level:8, steps:2000,weight:70},
+      {group:"B",name:"Nidoran♀", gender:"♀",level:5, steps:500, weight:75},
+      {group:"B",name:"Nidoran♂", gender:"♂",level:5, steps:2000,weight:75},
+      {group:"C",name:"Pidgey",   gender:"♂",level:5, steps:0,   weight:100},
+      {group:"C",name:"Sentret",  gender:"♀",level:5, steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Revive",      steps:2500,weight:20},{name:"Full Heal",  steps:2000,weight:20},
+      {name:"Burn Heal",   steps:1000,weight:30},{name:"Ice Heal",   steps:900, weight:30},
+      {name:"Chesto Berry",steps:800, weight:30},{name:"Awakening",  steps:700, weight:40},
+      {name:"Cheri Berry", steps:600, weight:50},{name:"Parlyz Heal",steps:500, weight:50},
+      {name:"Oran Berry",  steps:300, weight:50},{name:"Potion",     steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"noisy_forest", name:"Noisy Forest", watts:0, nat:false, event:false,
+    types:["Fire","Ice","Flying"],
+    pokemon:[
+      {group:"A",name:"Wobbuffet", gender:"♀",level:15,steps:4000,weight:30},
+      {group:"A",name:"Bellsprout",gender:"♀",level:8, steps:3000,weight:70},
+      {group:"B",name:"Venonat",   gender:"♂",level:6, steps:700, weight:89},
+      {group:"B",name:"Paras",     gender:"♀",level:6, steps:700, weight:89},
+      {group:"C",name:"Oddish",    gender:"♀",level:5, steps:0,   weight:100},
+      {group:"C",name:"Spearow",   gender:"♂",level:5, steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Net Ball",    steps:5000,weight:30},{name:"Revive",      steps:2500,weight:20},
+      {name:"Green Shard", steps:2000,weight:20},{name:"Ether",       steps:1000,weight:5},
+      {name:"Energy Root", steps:900, weight:10},{name:"EnergyPowder",steps:800, weight:50},
+      {name:"Big Mushroom",steps:700, weight:10},{name:"Pecha Berry", steps:500, weight:50},
+      {name:"TinyMushroom",steps:200, weight:50},{name:"Cheri Berry", steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"rugged_road", name:"Rugged Road", watts:50, nat:false, event:false,
+    types:["Water","Fighting","Ground"],
+    pokemon:[
+      {group:"A",name:"Magby",    gender:"♂",level:9,steps:5000,weight:50},
+      {group:"A",name:"Onix",     gender:"♂",level:9,steps:4000,weight:80},
+      {group:"B",name:"Machop",   gender:"♀",level:7,steps:1000,weight:92},
+      {group:"B",name:"Ponyta",   gender:"♀",level:7,steps:1000,weight:92},
+      {group:"C",name:"Hoothoot", gender:"♀",level:6,steps:0,   weight:100},
+      {group:"C",name:"Geodude",  gender:"♀",level:8,steps:0,   weight:100},
+    ],
+    items:[
+      {name:"PP Up",       steps:7000,weight:3}, {name:"Hard Stone",  steps:5000,weight:10},
+      {name:"Red Shard",   steps:3000,weight:20},{name:"Star Piece",  steps:2000,weight:20},
+      {name:"Full Heal",   steps:1500,weight:20},{name:"Super Repel", steps:1000,weight:20},
+      {name:"Burn Heal",   steps:800, weight:20},{name:"Antidote",    steps:500, weight:40},
+      {name:"Escape Rope", steps:100, weight:50},{name:"Repel",       steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"beautiful_beach", name:"Beautiful Beach", watts:200, nat:false, event:false,
+    types:["Grass","Electric","Dragon"],
+    pokemon:[
+      {group:"A",name:"Psyduck",  gender:"♀",level:10,steps:4000,weight:70},
+      {group:"A",name:"Staryu",   gender:"-", level:10,steps:5000,weight:60},
+      {group:"B",name:"Slowpoke", gender:"♂",level:8, steps:1000,weight:87},
+      {group:"B",name:"Poliwag",  gender:"♂",level:8, steps:1500,weight:87},
+      {group:"C",name:"Sunkern",  gender:"♀",level:6, steps:0,   weight:100},
+      {group:"C",name:"Wooper",   gender:"♂",level:6, steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Dive Ball",   steps:5000,weight:30},{name:"Big Pearl",   steps:4000,weight:20},
+      {name:"Blue Shard",  steps:3000,weight:20},{name:"Heart Scale", steps:2000,weight:20},
+      {name:"Leppa Berry", steps:1800,weight:20},{name:"Full Heal",   steps:1500,weight:30},
+      {name:"Aspear Berry",steps:1000,weight:20},{name:"Soda Pop",    steps:800, weight:50},
+      {name:"Rawst Berry", steps:100, weight:40},{name:"Fresh Water", steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"suburban_area", name:"Suburban Area", watts:500, nat:false, event:false,
+    types:["Fighting","Normal","Psychic"],
+    pokemon:[
+      {group:"A",name:"Elekid",    gender:"♂",level:11,steps:5000,weight:15},
+      {group:"A",name:"Magnemite", gender:"-", level:11,steps:4000,weight:40},
+      {group:"B",name:"Magnemite", gender:"-", level:8, steps:1000,weight:85},
+      {group:"B",name:"Murkrow",   gender:"♀",level:11,steps:1000,weight:45},
+      {group:"C",name:"Hoothoot",  gender:"♀",level:7, steps:0,   weight:100},
+      {group:"C",name:"Rattata",   gender:"♀",level:7, steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Dusk Ball",   steps:5000,weight:20},{name:"Revive",      steps:2500,weight:20},
+      {name:"Yellow Shard",steps:2000,weight:20},{name:"Lemonade",    steps:1500,weight:20},
+      {name:"Hyper Potion",steps:1000,weight:20},{name:"Super Potion",steps:800, weight:30},
+      {name:"Persim Berry",steps:500, weight:50},{name:"Repel",       steps:300, weight:50},
+      {name:"Antidote",    steps:100, weight:50},{name:"Potion",      steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"dim_cave", name:"Dim Cave", watts:1000, nat:false, event:false,
+    types:["Fighting","Ground","Steel"],
+    pokemon:[
+      {group:"A",name:"Duskull",   gender:"♂",level:12,steps:5000,weight:30},
+      {group:"A",name:"Misdreavus",gender:"♀",level:14,steps:5000,weight:30},
+      {group:"B",name:"Gastly",    gender:"♂",level:8, steps:1000,weight:85},
+      {group:"B",name:"Zubat",     gender:"♀",level:9, steps:1000,weight:85},
+      {group:"C",name:"Geodude",   gender:"♂",level:7, steps:0,   weight:100},
+      {group:"C",name:"Zubat",     gender:"♂",level:7, steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Dusk Stone",  steps:7500,weight:5}, {name:"Dusk Ball",   steps:5000,weight:20},
+      {name:"Spell Tag",   steps:3500,weight:10},{name:"Stardust",    steps:2000,weight:30},
+      {name:"Super Repel", steps:1500,weight:20},{name:"Revive",      steps:1000,weight:20},
+      {name:"Escape Rope", steps:700, weight:30},{name:"Super Potion",steps:400, weight:50},
+      {name:"Repel",       steps:100, weight:50},{name:"Antidote",    steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"blue_lake", name:"Blue Lake", watts:2000, nat:false, event:false,
+    types:["Electric","Grass","Dragon"],
+    pokemon:[
+      {group:"A",name:"Dratini",   gender:"♂",level:15,steps:8000,weight:15},
+      {group:"A",name:"Gyarados",  gender:"♀",level:15,steps:6000,weight:25},
+      {group:"B",name:"Goldeen",   gender:"♀",level:10,steps:1000,weight:85},
+      {group:"B",name:"Magikarp",  gender:"♂",level:10,steps:1000,weight:85},
+      {group:"C",name:"Poliwag",   gender:"♀",level:8, steps:0,   weight:100},
+      {group:"C",name:"Tentacool", gender:"♂",level:10,steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Dragon Scale",steps:8000,weight:5}, {name:"King's Rock", steps:5000,weight:10},
+      {name:"Mystic Water",steps:3000,weight:15},{name:"Blue Shard",  steps:2000,weight:20},
+      {name:"Super Repel", steps:1500,weight:20},{name:"Dive Ball",   steps:1000,weight:30},
+      {name:"Rawst Berry", steps:700, weight:40},{name:"Soda Pop",    steps:400, weight:50},
+      {name:"Repel",       steps:100, weight:50},{name:"Fresh Water", steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"town_outskirts", name:"Town Outskirts", watts:3000, nat:false, event:false,
+    types:["Normal","Poison","Dark"],
+    pokemon:[
+      {group:"A",name:"Munchlax",  gender:"♂",level:15,steps:8000,weight:5},
+      {group:"A",name:"Lickitung", gender:"♀",level:15,steps:6000,weight:20},
+      {group:"B",name:"Chansey",   gender:"♀",level:12,steps:2000,weight:50},
+      {group:"B",name:"Ekans",     gender:"♂",level:12,steps:2000,weight:80},
+      {group:"C",name:"Rattata",   gender:"♂",level:10,steps:0,   weight:100},
+      {group:"C",name:"Meowth",    gender:"♂",level:10,steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Soothe Bell", steps:8000,weight:5}, {name:"Oval Stone",  steps:5000,weight:10},
+      {name:"Silk Scarf",  steps:3000,weight:15},{name:"Revive",      steps:2000,weight:20},
+      {name:"Lemonade",    steps:1500,weight:20},{name:"Hyper Potion",steps:1000,weight:25},
+      {name:"Pecha Berry", steps:700, weight:40},{name:"Super Potion",steps:400, weight:50},
+      {name:"Antidote",    steps:100, weight:50},{name:"Potion",      steps:0,   weight:100},
+    ],
+  },
+  // ── PÓS-POKÉDEX NACIONAL ──────────────────────────────────
+  {
+    id:"hoenn_field", name:"Hoenn Field", watts:500, nat:true, event:false,
+    types:["Fire","Electric","Steel"],
+    pokemon:[
+      {group:"A",name:"Roselia",   gender:"♀",level:15,steps:5000,weight:30},
+      {group:"A",name:"Electrike", gender:"♂",level:14,steps:4000,weight:50},
+      {group:"B",name:"Shroomish", gender:"♂",level:10,steps:1000,weight:85},
+      {group:"B",name:"Zigzagoon", gender:"♀",level:10,steps:1000,weight:85},
+      {group:"C",name:"Taillow",   gender:"♂",level:8, steps:0,   weight:100},
+      {group:"C",name:"Wurmple",   gender:"♀",level:8, steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Sun Stone",   steps:6000,weight:5}, {name:"Miracle Seed",steps:4000,weight:15},
+      {name:"Pecha Berry", steps:2500,weight:20},{name:"Oran Berry",   steps:1500,weight:30},
+      {name:"Cheri Berry", steps:1000,weight:40},{name:"Potion",       steps:500, weight:50},
+      {name:"Antidote",    steps:300, weight:50},{name:"Repel",        steps:100, weight:50},
+      {name:"Paralyze Heal",steps:50, weight:60},{name:"Potion",       steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"warm_beach", name:"Warm Beach", watts:1000, nat:true, event:false,
+    types:["Water","Ice","Steel"],
+    pokemon:[
+      {group:"A",name:"Corsola",   gender:"♀",level:15,steps:5000,weight:20},
+      {group:"A",name:"Wingull",   gender:"♂",level:14,steps:4000,weight:60},
+      {group:"B",name:"Corphish",  gender:"♂",level:10,steps:1000,weight:80},
+      {group:"B",name:"Wailmer",   gender:"♀",level:12,steps:2000,weight:70},
+      {group:"C",name:"Wingull",   gender:"♀",level:8, steps:0,   weight:100},
+      {group:"C",name:"Tentacool", gender:"♂",level:8, steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Deep Sea Scale",steps:6000,weight:5},{name:"Water Stone",steps:4000,weight:10},
+      {name:"Big Pearl",    steps:3000,weight:15},{name:"Blue Shard",  steps:2000,weight:20},
+      {name:"Aspear Berry", steps:1500,weight:25},{name:"Fresh Water", steps:1000,weight:40},
+      {name:"Rawst Berry",  steps:700, weight:40},{name:"Soda Pop",    steps:400, weight:50},
+      {name:"Repel",        steps:100, weight:50},{name:"Fresh Water", steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"volcano_path", name:"Volcano Path", watts:2000, nat:true, event:false,
+    types:["Water","Rock","Ground"],
+    pokemon:[
+      {group:"A",name:"Torkoal",   gender:"♂",level:15,steps:5000,weight:25},
+      {group:"A",name:"Slugma",    gender:"♀",level:14,steps:4000,weight:55},
+      {group:"B",name:"Numel",     gender:"♂",level:10,steps:1000,weight:85},
+      {group:"B",name:"Machop",    gender:"♂",level:10,steps:1000,weight:85},
+      {group:"C",name:"Geodude",   gender:"♂",level:8, steps:0,   weight:100},
+      {group:"C",name:"Slugma",    gender:"♂",level:8, steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Fire Stone",  steps:6000,weight:5}, {name:"Charcoal",    steps:4000,weight:10},
+      {name:"Red Shard",   steps:3000,weight:20},{name:"Hard Stone",   steps:2000,weight:20},
+      {name:"Burn Heal",   steps:1500,weight:25},{name:"Super Repel",  steps:1000,weight:30},
+      {name:"Antidote",    steps:700, weight:40},{name:"Super Potion", steps:400, weight:50},
+      {name:"Repel",       steps:100, weight:50},{name:"Potion",       steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"treehouse", name:"Treehouse", watts:3000, nat:true, event:false,
+    types:["Fire","Poison","Flying"],
+    pokemon:[
+      {group:"A",name:"Breloom",   gender:"♂",level:15,steps:5000,weight:20},
+      {group:"A",name:"Tropius",   gender:"♂",level:15,steps:5000,weight:20},
+      {group:"B",name:"Seedot",    gender:"♂",level:10,steps:1000,weight:80},
+      {group:"B",name:"Shroomish", gender:"♀",level:10,steps:1000,weight:80},
+      {group:"C",name:"Wurmple",   gender:"♂",level:8, steps:0,   weight:100},
+      {group:"C",name:"Taillow",   gender:"♀",level:8, steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Leaf Stone",  steps:6000,weight:5}, {name:"Big Mushroom", steps:4000,weight:10},
+      {name:"Green Shard", steps:3000,weight:20},{name:"MiracleSeed",  steps:2000,weight:15},
+      {name:"Pecha Berry", steps:1500,weight:30},{name:"EnergyPowder", steps:1000,weight:40},
+      {name:"Oran Berry",  steps:700, weight:45},{name:"Cheri Berry",  steps:400, weight:50},
+      {name:"Antidote",    steps:100, weight:60},{name:"Potion",       steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"scary_cave", name:"Scary Cave", watts:5000, nat:true, event:false,
+    types:["Normal","Flying","Psychic"],
+    pokemon:[
+      {group:"A",name:"Absol",     gender:"♂",level:16,steps:7000,weight:15},
+      {group:"A",name:"Shuppet",   gender:"♀",level:15,steps:5000,weight:30},
+      {group:"B",name:"Sableye",   gender:"♂",level:12,steps:2000,weight:60},
+      {group:"B",name:"Shuppet",   gender:"♂",level:12,steps:2000,weight:70},
+      {group:"C",name:"Zubat",     gender:"♂",level:9, steps:0,   weight:100},
+      {group:"C",name:"Sableye",   gender:"♀",level:10,steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Dusk Stone",  steps:8000,weight:5}, {name:"Spell Tag",   steps:5000,weight:10},
+      {name:"Dusk Ball",   steps:3500,weight:15},{name:"Stardust",    steps:2500,weight:20},
+      {name:"Revive",      steps:2000,weight:20},{name:"Super Repel", steps:1500,weight:25},
+      {name:"Escape Rope", steps:1000,weight:30},{name:"Super Potion",steps:500, weight:50},
+      {name:"Repel",       steps:200, weight:50},{name:"Antidote",    steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"sinnoh_field", name:"Sinnoh Field", watts:8000, nat:true, event:false,
+    types:["Water","Fire","Ice"],
+    pokemon:[
+      {group:"A",name:"Pachirisu",  gender:"♀",level:15,steps:5000,weight:30},
+      {group:"A",name:"Buizel",     gender:"♂",level:14,steps:5000,weight:50},
+      {group:"B",name:"Bidoof",     gender:"♂",level:10,steps:1000,weight:80},
+      {group:"B",name:"Starly",     gender:"♀",level:10,steps:1000,weight:80},
+      {group:"C",name:"Starly",     gender:"♂",level:8, steps:0,   weight:100},
+      {group:"C",name:"Bidoof",     gender:"♀",level:8, steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Shiny Stone",  steps:7000,weight:5},{name:"Dawn Stone",   steps:5000,weight:5},
+      {name:"Chople Berry", steps:3000,weight:15},{name:"Rindo Berry", steps:2000,weight:20},
+      {name:"Wacan Berry",  steps:1500,weight:20},{name:"Revive",      steps:1000,weight:25},
+      {name:"Hyper Potion", steps:700, weight:35},{name:"Super Potion",steps:400, weight:50},
+      {name:"Repel",        steps:100, weight:50},{name:"Potion",      steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"icy_mountain", name:"Icy Mountain Rd.", watts:30000, nat:true, event:false,
+    types:["Fire","Fighting","Rock"],
+    pokemon:[
+      {group:"A",name:"Sneasel",   gender:"♀",level:17,steps:8000,weight:20},
+      {group:"A",name:"Smoochum",  gender:"♀",level:16,steps:7000,weight:30},
+      {group:"B",name:"Swinub",    gender:"♂",level:12,steps:2000,weight:75},
+      {group:"B",name:"Snorunt",   gender:"♀",level:12,steps:2000,weight:75},
+      {group:"C",name:"Snorunt",   gender:"♂",level:10,steps:0,   weight:100},
+      {group:"C",name:"Swinub",    gender:"♀",level:10,steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Dawn Stone",  steps:8000,weight:5}, {name:"NeverMeltIce",steps:5000,weight:10},
+      {name:"Icy Rock",    steps:3500,weight:15},{name:"Revive",      steps:2500,weight:20},
+      {name:"Ice Heal",    steps:2000,weight:25},{name:"Super Repel", steps:1500,weight:25},
+      {name:"Escape Rope", steps:1000,weight:30},{name:"Super Potion",steps:500, weight:50},
+      {name:"Repel",       steps:200, weight:50},{name:"Antidote",    steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"big_forest", name:"Big Forest", watts:40000, nat:true, event:false,
+    types:["Bug","Fire","Flying"],
+    pokemon:[
+      {group:"A",name:"Scyther",   gender:"♂",level:18,steps:8000,weight:15},
+      {group:"A",name:"Heracross", gender:"♂",level:16,steps:6000,weight:25},
+      {group:"B",name:"Caterpie",  gender:"♂",level:10,steps:1000,weight:80},
+      {group:"B",name:"Weedle",    gender:"♂",level:10,steps:1000,weight:80},
+      {group:"C",name:"Metapod",   gender:"♂",level:10,steps:0,   weight:100},
+      {group:"C",name:"Kakuna",    gender:"♂",level:10,steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Silverpowder",steps:8000,weight:5}, {name:"Sharp Beak",  steps:5000,weight:10},
+      {name:"Green Shard", steps:3000,weight:20},{name:"Big Mushroom", steps:2000,weight:20},
+      {name:"TinyMushroom",steps:1500,weight:30},{name:"Pecha Berry",  steps:1000,weight:40},
+      {name:"Oran Berry",  steps:700, weight:45},{name:"Cheri Berry",  steps:400, weight:50},
+      {name:"Antidote",    steps:100, weight:60},{name:"Potion",       steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"white_lake", name:"White Lake", watts:50000, nat:true, event:false,
+    types:["Grass","Dragon","Psychic"],
+    pokemon:[
+      {group:"A",name:"Relicanth",  gender:"♂",level:20,steps:9000,weight:10},
+      {group:"A",name:"Lapras",     gender:"♀",level:18,steps:7000,weight:20},
+      {group:"B",name:"Golduck",    gender:"♂",level:14,steps:3000,weight:60},
+      {group:"B",name:"Slowpoke",   gender:"♀",level:12,steps:2000,weight:80},
+      {group:"C",name:"Marill",     gender:"♀",level:10,steps:0,   weight:100},
+      {group:"C",name:"Psyduck",    gender:"♂",level:10,steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Dragon Scale",steps:9000,weight:5},{name:"Water Stone",  steps:6000,weight:8},
+      {name:"King's Rock", steps:4000,weight:10},{name:"Blue Shard",  steps:3000,weight:20},
+      {name:"Heart Scale", steps:2000,weight:20},{name:"Dive Ball",   steps:1500,weight:30},
+      {name:"Fresh Water", steps:1000,weight:40},{name:"Rawst Berry", steps:500, weight:50},
+      {name:"Repel",       steps:200, weight:50},{name:"Potion",      steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"stormy_beach", name:"Stormy Beach", watts:65000, nat:true, event:false,
+    types:["Rock","Ground","Steel"],
+    pokemon:[
+      {group:"A",name:"Lanturn",   gender:"♀",level:20,steps:9000,weight:10},
+      {group:"A",name:"Octillery", gender:"♂",level:18,steps:7000,weight:20},
+      {group:"B",name:"Krabby",    gender:"♂",level:13,steps:2000,weight:75},
+      {group:"B",name:"Corsola",   gender:"♀",level:12,steps:2000,weight:75},
+      {group:"C",name:"Shellder",  gender:"♂",level:10,steps:0,   weight:100},
+      {group:"C",name:"Staryu",    gender:"-", level:10,steps:0,   weight:100},
+    ],
+    items:[
+      {name:"DeepSeaTooth",steps:9000,weight:5},{name:"Water Stone",  steps:6000,weight:8},
+      {name:"Big Pearl",   steps:4000,weight:10},{name:"Blue Shard",  steps:3000,weight:20},
+      {name:"Heart Scale", steps:2000,weight:20},{name:"Dive Ball",   steps:1500,weight:30},
+      {name:"Rawst Berry", steps:1000,weight:40},{name:"Soda Pop",    steps:500, weight:50},
+      {name:"Repel",       steps:200, weight:50},{name:"Fresh Water", steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"resort", name:"Resort", watts:80000, nat:true, event:false,
+    types:["Normal","Psychic","Flying"],
+    pokemon:[
+      {group:"A",name:"Blissey",   gender:"♀",level:20,steps:9000,weight:10},
+      {group:"A",name:"Togekiss",  gender:"♂",level:20,steps:8000,weight:15},
+      {group:"B",name:"Chansey",   gender:"♀",level:15,steps:3000,weight:50},
+      {group:"B",name:"Togepi",    gender:"♀",level:13,steps:2000,weight:70},
+      {group:"C",name:"Clefairy",  gender:"♀",level:12,steps:0,   weight:100},
+      {group:"C",name:"Jigglypuff",gender:"♀",level:12,steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Moon Stone",  steps:9000,weight:5},{name:"Oval Stone",   steps:6000,weight:8},
+      {name:"Soothe Bell", steps:4000,weight:10},{name:"Silk Scarf",  steps:3000,weight:15},
+      {name:"Revive",      steps:2000,weight:20},{name:"Hyper Potion",steps:1500,weight:25},
+      {name:"Lemonade",    steps:1000,weight:35},{name:"Super Potion",steps:500, weight:50},
+      {name:"Antidote",    steps:200, weight:60},{name:"Potion",      steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"quiet_cave", name:"Quiet Cave", watts:100000, nat:true, event:false,
+    types:["Water","Psychic","Normal"],
+    pokemon:[
+      {group:"A",name:"Dunsparce",  gender:"♂",level:20,steps:8000,weight:10},
+      {group:"A",name:"Wobbuffet",  gender:"♂",level:20,steps:7000,weight:20},
+      {group:"B",name:"Slowbro",    gender:"♂",level:16,steps:3000,weight:50},
+      {group:"B",name:"Mr. Mime",   gender:"♂",level:16,steps:3000,weight:60},
+      {group:"C",name:"Jynx",       gender:"♀",level:14,steps:0,   weight:100},
+      {group:"C",name:"Smoochum",   gender:"♀",level:12,steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Twisted Spoon",steps:9000,weight:5},{name:"Leppa Berry",steps:6000,weight:10},
+      {name:"Sitrus Berry", steps:4000,weight:10},{name:"Hyper Potion",steps:3000,weight:20},
+      {name:"Revive",       steps:2000,weight:20},{name:"Super Repel", steps:1500,weight:25},
+      {name:"Escape Rope",  steps:1000,weight:35},{name:"Super Potion",steps:500, weight:50},
+      {name:"Repel",        steps:200, weight:55},{name:"Potion",      steps:0,   weight:100},
+    ],
+  },
+  // ── EVENTOS ────────────────────────────────────────────────
+  {
+    id:"beyond_the_sea", name:"Beyond the Sea", watts:0, nat:false, event:true,
+    types:["Normal","Flying","Water"],
+    pokemon:[
+      {group:"A",name:"Corsola",   gender:"♀",level:15,steps:4000,weight:20},
+      {group:"A",name:"Staryu",    gender:"-", level:15,steps:4000,weight:40},
+      {group:"B",name:"Finneon",   gender:"♀",level:10,steps:1000,weight:70},
+      {group:"B",name:"Lumineon",  gender:"♀",level:15,steps:3000,weight:40},
+      {group:"C",name:"Magikarp",  gender:"♂",level:8, steps:0,   weight:100},
+      {group:"C",name:"Wingull",   gender:"♂",level:8, steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Water Stone",  steps:6000,weight:5},{name:"Deep Sea Scale",steps:4000,weight:10},
+      {name:"Heart Scale",  steps:2500,weight:15},{name:"Blue Shard",  steps:1500,weight:20},
+      {name:"Fresh Water",  steps:1000,weight:40},{name:"Rawst Berry", steps:700, weight:40},
+      {name:"Soda Pop",     steps:400, weight:50},{name:"Repel",       steps:200, weight:50},
+      {name:"Antidote",     steps:100, weight:60},{name:"Potion",      steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"night_skys_edge", name:"Night Sky's Edge", watts:0, nat:false, event:true,
+    types:["Psychic","Dark","Ghost"],
+    pokemon:[
+      {group:"A",name:"Jirachi",   gender:"-", level:30,steps:9000,weight:1},
+      {group:"A",name:"Clefairy",  gender:"♀",level:15,steps:5000,weight:30},
+      {group:"B",name:"Starmie",   gender:"-", level:15,steps:2000,weight:50},
+      {group:"B",name:"Clefairy",  gender:"♀",level:12,steps:1000,weight:70},
+      {group:"C",name:"Cleffa",    gender:"♀",level:10,steps:0,   weight:100},
+      {group:"C",name:"Staryu",    gender:"-", level:10,steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Star Piece",  steps:8000,weight:5},{name:"Moon Stone",   steps:5000,weight:10},
+      {name:"Stardust",    steps:3000,weight:20},{name:"Revive",      steps:2000,weight:20},
+      {name:"Sitrus Berry",steps:1500,weight:25},{name:"Lemonade",    steps:1000,weight:35},
+      {name:"Super Potion",steps:700, weight:45},{name:"Oran Berry",  steps:400, weight:50},
+      {name:"Pecha Berry", steps:100, weight:60},{name:"Potion",      steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"yellow_forest", name:"Yellow Forest", watts:0, nat:false, event:true,
+    types:["Electric","Flying","Steel"],
+    pokemon:[
+      {group:"A",name:"Pikachu",   gender:"♂",level:12,steps:5000,weight:50},
+      {group:"A",name:"Pikachu",   gender:"♀",level:12,steps:4000,weight:50},
+      {group:"B",name:"Pikachu",   gender:"♂",level:10,steps:1000,weight:80},
+      {group:"B",name:"Pikachu",   gender:"♀",level:10,steps:1000,weight:80},
+      {group:"C",name:"Pichu",     gender:"♂",level:5, steps:0,   weight:100},
+      {group:"C",name:"Pichu",     gender:"♀",level:5, steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Thunder Stone",steps:6000,weight:5},{name:"Yellow Shard",steps:4000,weight:15},
+      {name:"Sitrus Berry", steps:2500,weight:20},{name:"Lum Berry",  steps:1500,weight:20},
+      {name:"Leppa Berry",  steps:1000,weight:30},{name:"Oran Berry",  steps:700, weight:40},
+      {name:"Pecha Berry",  steps:400, weight:50},{name:"Cheri Berry", steps:200, weight:60},
+      {name:"Antidote",     steps:100, weight:60},{name:"Potion",      steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"rally", name:"Rally", watts:0, nat:false, event:true,
+    types:["Fighting","Normal","Psychic"],
+    pokemon:[
+      {group:"A",name:"Spinda",    gender:"♂",level:15,steps:5000,weight:30},
+      {group:"A",name:"Smeargle",  gender:"♂",level:15,steps:4000,weight:30},
+      {group:"B",name:"Tyrogue",   gender:"♂",level:10,steps:1500,weight:70},
+      {group:"B",name:"Machop",    gender:"♂",level:10,steps:1000,weight:80},
+      {group:"C",name:"Mankey",    gender:"♂",level:8, steps:0,   weight:100},
+      {group:"C",name:"Meditite",  gender:"♀",level:8, steps:0,   weight:100},
+    ],
+    items:[
+      {name:"King's Rock",  steps:6000,weight:5},{name:"Scope Lens",  steps:4000,weight:10},
+      {name:"Sitrus Berry", steps:2500,weight:20},{name:"Lum Berry",  steps:1500,weight:20},
+      {name:"Revive",       steps:1000,weight:25},{name:"Hyper Potion",steps:700, weight:35},
+      {name:"Leppa Berry",  steps:400, weight:45},{name:"Super Potion",steps:200, weight:50},
+      {name:"Antidote",     steps:100, weight:60},{name:"Potion",      steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"sightseeing", name:"Sightseeing", watts:0, nat:false, event:true,
+    types:["Normal","Flying","Psychic"],
+    pokemon:[
+      {group:"A",name:"Miltank",   gender:"♀",level:15,steps:5000,weight:25},
+      {group:"A",name:"Togekiss",  gender:"♂",level:15,steps:5000,weight:25},
+      {group:"B",name:"Porygon",   gender:"-", level:12,steps:2000,weight:50},
+      {group:"B",name:"Togepi",    gender:"♀",level:10,steps:1000,weight:70},
+      {group:"C",name:"Clefairy",  gender:"♀",level:8, steps:0,   weight:100},
+      {group:"C",name:"Jigglypuff",gender:"♀",level:8, steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Oval Stone",  steps:7000,weight:5},{name:"Silk Scarf",   steps:4000,weight:10},
+      {name:"Soothe Bell", steps:3000,weight:10},{name:"Revive",      steps:2000,weight:20},
+      {name:"Hyper Potion",steps:1500,weight:25},{name:"Lemonade",    steps:1000,weight:35},
+      {name:"Super Potion",steps:700, weight:45},{name:"Oran Berry",  steps:400, weight:50},
+      {name:"Antidote",    steps:100, weight:60},{name:"Potion",      steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"winners_path", name:"Winner's Path", watts:0, nat:false, event:true,
+    types:["Water","Electric","Fighting"],
+    pokemon:[
+      {group:"A",name:"Magikarp",  gender:"♂",level:10,steps:5000,weight:30},
+      {group:"A",name:"Bronzor",   gender:"-", level:12,steps:5000,weight:30},
+      {group:"B",name:"Munchlax",  gender:"♂",level:10,steps:2000,weight:50},
+      {group:"B",name:"Horsea",    gender:"♂",level:10,steps:1000,weight:80},
+      {group:"C",name:"Beldum",    gender:"-", level:10,steps:0,   weight:100},
+      {group:"C",name:"Horsea",    gender:"♀",level:8, steps:0,   weight:100},
+    ],
+    items:[
+      {name:"PP Max",      steps:8000,weight:3},{name:"Destiny Knot", steps:5000,weight:5},
+      {name:"Lum Berry",   steps:3000,weight:15},{name:"Sitrus Berry",steps:2000,weight:20},
+      {name:"Revive",      steps:1500,weight:25},{name:"Hyper Potion",steps:1000,weight:30},
+      {name:"Leppa Berry", steps:700, weight:40},{name:"Super Potion",steps:400, weight:50},
+      {name:"Antidote",    steps:100, weight:60},{name:"Potion",      steps:0,   weight:100},
+    ],
+  },
+  {
+    id:"amity_meadow", name:"Amity Meadow", watts:0, nat:false, event:true,
+    types:["Normal","Grass","Fairy"],
+    pokemon:[
+      {group:"A",name:"Eevee",     gender:"♂",level:10,steps:5000,weight:30},
+      {group:"A",name:"Eevee",     gender:"♀",level:10,steps:4000,weight:30},
+      {group:"B",name:"Skitty",    gender:"♀",level:8, steps:1000,weight:80},
+      {group:"B",name:"Plusle",    gender:"♂",level:8, steps:1000,weight:80},
+      {group:"C",name:"Minun",     gender:"♀",level:8, steps:0,   weight:100},
+      {group:"C",name:"Snubbull",  gender:"♀",level:8, steps:0,   weight:100},
+    ],
+    items:[
+      {name:"Soothe Bell", steps:6000,weight:5},{name:"Lum Berry",    steps:4000,weight:15},
+      {name:"Sitrus Berry",steps:2500,weight:20},{name:"Oval Stone",  steps:1500,weight:20},
+      {name:"Revive",      steps:1000,weight:25},{name:"Hyper Potion",steps:700, weight:35},
+      {name:"Pecha Berry", steps:400, weight:50},{name:"Oran Berry",  steps:200, weight:55},
+      {name:"Antidote",    steps:100, weight:60},{name:"Potion",      steps:0,   weight:100},
+    ],
+  },
+];
+
+// ═══════════════════════════════════════════════════════════════
+// RNG — constantes reais do firmware (dmitry.gr)
+// ═══════════════════════════════════════════════════════════════
+class LCG {
+  constructor(seed){ this.state = seed >>> 0; }
+  next(){ this.state=((Math.imul(this.state,0x41C64E6D)+0x6073)>>>0); return this.state; }
+  rand(max){ return (this.next()>>>16)%max; }
+}
+class IRNG {
+  constructor(seed){ this.state = seed >>> 0; }
+  next(){ this.state=((Math.imul(this.state,0xEEB9EB65)+0xA3561A1)>>>0); return this.state; }
+  rand(max){ return (this.next()>>>16)%max; }
+}
+
+// Verifica se um PID é shiny para um dado TID/SID
+// Formula: (TID XOR SID XOR PID_high XOR PID_low) < 8
+function isShiny(pid, tid, sid){
+  const pidHigh = (pid >>> 16) & 0xFFFF;
+  const pidLow  =  pid        & 0xFFFF;
+  return ((tid ^ sid ^ pidHigh ^ pidLow) < 8);
+}
+
+// Gera PID completo via LCG e verifica shiny
+function generatePID(rng, tid, sid){
+  const pid = ((rng.next() >>> 16) << 16) | (rng.next() >>> 16);
+  return { pid: pid >>> 0, shiny: isShiny(pid >>> 0, tid, sid) };
+}
+
+function strollSeed(h,m,s){ return (h*3600+m*60+s)>>>0; }
+
+function selectStrollPool(route,rng){
+  const g={A:[],B:[],C:[]};
+  route.pokemon.forEach(p=>g[p.group].push(p));
+  return { A:g.A[rng.rand(g.A.length)], B:g.B[rng.rand(g.B.length)], C:g.C[rng.rand(g.C.length)] };
+}
+
+// Cascata A→B→C com rand único (mecânica real)
+function resolveEncounter(pool,steps,typeAdv,rng){
+  const mult=typeAdv?0.75:1.0;
+  const rand=rng.rand(100);
+  if(steps>=pool.A.steps*mult&&rand<pool.A.weight) return pool.A;
+  if(steps>=pool.B.steps*mult&&rand<pool.B.weight) return pool.B;
+  return pool.C;
+}
+
+// Rand independente por item (mecânica real)
+function resolveItem(route,steps,irng){
+  for(const item of route.items){
+    if(steps>=item.steps && irng.rand(100)<item.weight) return item;
+  }
+  return route.items[route.items.length-1];
+}
+
+function resolveBalloon(happiness,irng){
+  const r=irng.rand(100);
+  if(happiness>=200&&r<15) return {watts:50,label:"Grande 💛"};
+  if(happiness>=120&&r<35) return {watts:20,label:"Médio 💛"};
+  if(r<60)                 return {watts:10,label:"Pequeno 💛"};
+  return null;
+}
+
+function expForLevel(lvl){ return lvl*lvl*lvl; } // Medium Fast
+
+// ═══════════════════════════════════════════════════════════════
+// PERSISTÊNCIA
+// ═══════════════════════════════════════════════════════════════
+const INIT={
+  totalWatts:0, lifetimeSteps:0,
+  unlockedRoutes:["refreshing_field","noisy_forest"],
+  hasNationalDex:false,
+  sessions:[], pkmnBox:[], itemBox:[],
+  sevenDay:[0,0,0,0,0,0,0],
+  currentPokemon:null,
+  trainer:{ name:"", tid:0, sid:0, game:"SoulSilver", lang:"Português" },
+};
+const BLANK={name:"",level:"",exp:"",happiness:"",type1:"",type2:"",route:"refreshing_field",steps:"",hour:"",minute:"",second:""};
+
+// ═══════════════════════════════════════════════════════════════
+// CORES
+// ═══════════════════════════════════════════════════════════════
+const C={
+  bg:"#0d1117",sur:"#161b22",bor:"#30363d",
+  green:"#3fb950",gdim:"#238636",
+  yellow:"#d29922",blue:"#58a6ff",red:"#f85149",
+  purple:"#bc8cff",gray:"#8b949e",white:"#e6edf3",
+  amber:"#ffa657",pink:"#f9a8d4",teal:"#39d353",
+};
+
+
+// ── PERSISTÊNCIA VIA localStorage (persiste entre sessões) ──────
+const LS_KEY = "pokewalker_save_v2";
+
+function lsSave(data){
+  try{
+    localStorage.setItem(LS_KEY, JSON.stringify(data));
+    return true;
+  }catch(e){
+    console.error("[PW] Erro ao salvar:", e);
+    return false;
+  }
+}
+
+function lsLoad(){
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    if(!raw) return null;
+    const data = JSON.parse(raw);
+    if(!data.trainer) data.trainer = { name:"", tid:0, sid:0, game:"SoulSilver", lang:"Português" };
+    return data;
+  }catch(e){
+    console.error("[PW] Erro ao carregar:", e);
+    return null;
+  }
+}
+
+function lsClear(){
+  try{ localStorage.removeItem(LS_KEY); }catch{}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COMPONENTE PRINCIPAL
+// ═══════════════════════════════════════════════════════════════
+function Pokewalker(){
+  const [pw,setPw]       = useState(null);
+  const [screen,setScreen] = useState("boot");
+  const [stroll,setStroll] = useState(null);
+  const [msg,setMsg]     = useState("");
+  const [combat,setCombat] = useState(null);
+  const [dowsing,setDowsing] = useState(null);
+  const [result,setResult] = useState(null);
+  const [setup,setSetup] = useState(BLANK);
+  const [confirmReset,setConfirmReset] = useState(false);
+  const lcgRef  = useRef(null);
+  const irngRef = useRef(null);
+
+  useEffect(()=>{
+    const loaded = lsLoad();
+    setPw(loaded || INIT);
+    setTimeout(()=>setScreen("setup"), 800);
+  },[]);
+
+  const save=(next)=>{
+    setPw(next);
+    lsSave(next);
+  };
+
+  const toast=(m,ms=2800)=>{ setMsg(m); setTimeout(()=>setMsg(""),ms); };
+
+  // Rotas disponíveis baseado em watts + pokédex nacional
+  const availableRoutes=(totalWatts,hasNat)=>
+    ROUTES.filter(r=> !r.event && r.watts<=totalWatts && (!r.nat||hasNat));
+
+  // ── INICIAR PASSEIO ─────────────────────────────────────
+  const startStroll=()=>{
+    const h=parseInt(setup.hour)||0,m=parseInt(setup.minute)||0,s=parseInt(setup.second)||0;
+    const seed=strollSeed(h,m,s);
+    const lcg=new LCG(seed), irng=new IRNG(seed^0xAA55AA55);
+    const route=ROUTES.find(r=>r.id===setup.route);
+    const pool=selectStrollPool(route,lcg);
+    lcgRef.current=lcg; irngRef.current=irng;
+    const steps=parseInt(setup.steps)||0;
+    const watts=Math.floor(steps/20);
+    const happiness=parseInt(setup.happiness)||70;
+    const irngBalloon=new IRNG(seed^0xAA55AA55);
+    const balloon=resolveBalloon(happiness,irngBalloon);
+    const pkmTypes=[setup.type1,setup.type2].filter(Boolean).map(t=>t.trim());
+    const route2=ROUTES.find(r=>r.id===setup.route);
+    const typeAdv=pkmTypes.some(t=>route2?.types?.includes(t));
+    const pokemon={name:setup.name||"?",level:parseInt(setup.level)||1,exp:parseInt(setup.exp)||0,happiness};
+    const newUnlocked=availableRoutes(pw?.totalWatts||0,pw?.hasNationalDex||false).map(r=>r.id);
+    save({...pw,currentPokemon:pokemon,unlockedRoutes:newUnlocked});
+    setStroll({route,pool,steps,watts,wattsFromSteps:watts,wattsSpent:0,balloonWatts:0,
+      seed:"0x"+seed.toString(16).toUpperCase().padStart(8,"0"),
+      pokemon,typeAdv,capturedPokemon:[],foundItems:[],balloon,balloonCollected:false});
+    setSetup(BLANK);
+    setScreen("home");
+  };
+
+  const spendWatts=(cost)=>{
+    if(!stroll||stroll.watts<cost){ toast(`Watts insuficientes! (${stroll?.watts||0}W)`); return false; }
+    setStroll(s=>({...s,watts:s.watts-cost,wattsSpent:s.wattsSpent+cost}));
+    return true;
+  };
+
+  const collectBalloon=()=>{
+    if(!stroll?.balloon||stroll.balloonCollected) return;
+    const w=stroll.balloon.watts;
+    setStroll(s=>({...s,watts:s.watts+w,balloonWatts:w,balloonCollected:true,balloon:null}));
+    toast(`+${w} Watts coletados!`);
+  };
+
+  // ── RADAR ──────────────────────────────────────────────
+  const startRadar=()=>{
+    if(stroll.capturedPokemon.length>=3){ toast("Inventário cheio! Máx. 3 Pokémon."); return; }
+    if(!spendWatts(10)) return;
+    const wild=resolveEncounter(stroll.pool,stroll.steps,stroll.typeAdv,lcgRef.current);
+    setCombat({wild,playerHP:4,wildHP:4,log:[`Um ${wild.name} selvagem apareceu!`],over:false,result:null});
+    setScreen("radar");
+  };
+
+  const battleAction=(action)=>{
+    if(combat.over) return;
+    const lcg=lcgRef.current;
+    let {playerHP,wildHP,log}=combat;
+    const newLog=[]; let over=false,res=null;
+    const wildIntent=lcg.rand(4)<3?"attack":"flee";
+    if(action==="attack"){
+      const isCrit=lcg.rand(16)===0||wildIntent==="flee";
+      const dmg=isCrit?2:1;
+      wildHP=Math.max(0,wildHP-dmg);
+      newLog.push(isCrit?`Crítico! ${combat.wild.name} perdeu ${dmg}HP`:`Você atacou! ${combat.wild.name} perdeu 1HP`);
+      if(wildIntent==="attack"){ playerHP=Math.max(0,playerHP-1); newLog.push(`${combat.wild.name} contra-atacou! -1HP`); }
+      if(wildIntent==="flee") newLog.push(`${combat.wild.name} tentou fugir!`);
+    }
+    if(action==="evade"){
+      if(wildIntent==="attack"){ wildHP=Math.max(0,wildHP-1); newLog.push(`Esquivou e contra-atacou! ${combat.wild.name} -1HP`); }
+      else if(wildIntent==="flee"){ over=true; res="escaped"; newLog.push(`${combat.wild.name} fugiu!`); }
+      else newLog.push("Você se preparou... nada aconteceu.");
+    }
+    if(action==="catch"){
+      const rates={4:5,3:20,2:50,1:90};
+      const rate=rates[Math.max(1,wildHP)]??5;
+      const roll=lcg.rand(100);
+      if(roll<rate){ over=true; res="caught"; newLog.push(`${combat.wild.name} foi capturado! 🎉`); if(isShiny(((lcgRef.current.state>>>16)<<16)|(lcgRef.current.state&0xFFFF),pw?.trainer?.tid||0,pw?.trainer?.sid||0)) newLog.push("✨ É SHINY!"); }
+      else{
+        newLog.push(`Captura falhou... (${roll+1}/${rate}%)`);
+        if(wildIntent==="attack"){ playerHP=Math.max(0,playerHP-1); newLog.push(`${combat.wild.name} atacou! -1HP`); }
+      }
+    }
+    if(wildHP<=0&&!over){ over=true; res="fainted"; newLog.push(`${combat.wild.name} desmaiou!`); }
+    if(playerHP<=0&&!over){ over=true; res="lost"; newLog.push("Você foi derrotado..."); }
+    setCombat(p=>({...p,playerHP,wildHP,log:[...p.log,...newLog],over,result:res}));
+    if(over&&res==="caught"){
+      const tid=pw?.trainer?.tid||0, sid=pw?.trainer?.sid||0;
+      const {pid,shiny}=generatePID(lcgRef.current,tid,sid);
+      setStroll(s=>({...s,capturedPokemon:[...s.capturedPokemon,{name:combat.wild.name,gender:combat.wild.gender,level:combat.wild.level,pid:"0x"+pid.toString(16).toUpperCase().padStart(8,"0"),shiny}]}));
+    }
+  };
+
+  // ── DOWSING ────────────────────────────────────────────
+  const startDowsing=()=>{
+    if(stroll.foundItems.length>=3){ toast("Inventário cheio! Máx. 3 itens."); return; }
+    if(!spendWatts(3)) return;
+    const item=resolveItem(stroll.route,stroll.steps,irngRef.current);
+    const pos=irngRef.current.rand(6);
+    setDowsing({item,pos,chosen:null,hint:null,attempts:0,over:false,result:null});
+    setScreen("dowsing");
+  };
+
+  const chooseBush=(idx)=>{
+    if(dowsing.over) return;
+    if(idx===dowsing.pos){
+      setDowsing(d=>({...d,chosen:idx,over:true,result:"found"}));
+      setStroll(s=>({...s,foundItems:[...s.foundItems,dowsing.item]}));
+    } else if(dowsing.attempts===0){
+      setDowsing(d=>({...d,chosen:idx,hint:Math.abs(idx-dowsing.pos)===1?"Perto! 🔥":"Longe! ❄️",attempts:1}));
+    } else {
+      setDowsing(d=>({...d,chosen:idx,over:true,result:"miss"}));
+    }
+  };
+
+  // ── ENCERRAR PASSEIO ───────────────────────────────────
+  const endStroll=()=>{
+    if(!stroll) return;
+    const poke=stroll.pokemon;
+    const newExp=poke.exp+stroll.steps;
+    const leveledUp=newExp>=expForLevel(poke.level+1);
+    const finalLevel=leveledUp?poke.level+1:poke.level;
+    const hapGain=Math.min(255-poke.happiness,Math.floor(stroll.steps/100));
+    const newHap=poke.happiness+hapGain;
+    const wattsReturned=stroll.watts;
+    const newTotal=(pw?.totalWatts||0)+wattsReturned;
+    const newNat=pw?.hasNationalDex||false;
+    const newUnlocked=availableRoutes(newTotal,newNat).map(r=>r.id);
+    const newSevenDay=[...(pw?.sevenDay||[0,0,0,0,0,0,0]).slice(1),stroll.steps];
+    const sess={
+      id:Date.now(), date:new Date().toLocaleDateString("pt-BR"),
+      route:stroll.route.name, pokemon:poke.name, steps:stroll.steps,
+      wattsFromSteps:stroll.wattsFromSteps, balloonWatts:stroll.balloonWatts,
+      wattsSpent:stroll.wattsSpent, wattsReturned,
+      expBefore:poke.exp, expAfter:newExp,
+      levelBefore:poke.level, levelAfter:finalLevel, leveledUp,
+      hapBefore:poke.happiness, hapAfter:newHap,
+      capturedPokemon:stroll.capturedPokemon, foundItems:stroll.foundItems,
+    };
+    const newPw={
+      ...pw, totalWatts:newTotal,
+      lifetimeSteps:(pw?.lifetimeSteps||0)+stroll.steps,
+      unlockedRoutes:newUnlocked,
+      sessions:[sess,...(Array.isArray(pw?.sessions)?pw.sessions:[])].slice(0,50),
+      pkmnBox:[...(pw?.pkmnBox||[]),...stroll.capturedPokemon].slice(0,99),
+      itemBox:[...(pw?.itemBox||[]),...stroll.foundItems.map(i=>i.name)].slice(0,99),
+      sevenDay:newSevenDay,
+      currentPokemon:{...poke,exp:newExp,level:finalLevel,happiness:newHap},
+    };
+    save(newPw);
+    setResult({sess,newTotal,newUnlocked,prevTotal:pw?.totalWatts||0,newNat});
+    setStroll(null); setCombat(null); setDowsing(null);
+    setScreen("result");
+  };
+
+  if(!pw) return <div style={{background:C.bg,height:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{color:C.green,fontFamily:"monospace",letterSpacing:"4px"}}>POKÉWALKER...</div></div>;
+
+  // ── RENDER ─────────────────────────────────────────────
+  return (
+    <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Courier New',monospace",color:C.white,display:"flex",flexDirection:"column",alignItems:"center",padding:"20px 0 60px"}}>
+      <style>{`
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+        @keyframes slideUp{from{transform:translateY(8px);opacity:0}to{transform:translateY(0);opacity:1}}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        .btn{transition:all .12s;cursor:pointer;border:none;font-family:'Courier New',monospace;outline:none;}
+        .btn:hover:not(:disabled){filter:brightness(1.2);}
+        .btn:active:not(:disabled){transform:scale(.96);}
+        .bush:hover:not(:disabled){background:#1e2a1e!important;border-color:#3fb950!important;}
+        ::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px;}
+      `}</style>
+      <div style={{width:"100%",maxWidth:"360px",background:"#1c2128",border:`2px solid ${C.bor}`,borderRadius:"22px",boxShadow:"0 16px 56px rgba(0,0,0,.75),inset 0 1px 0 rgba(255,255,255,.04)",overflow:"hidden"}}>
+        <div style={{padding:"12px 20px 4px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:"9px",color:"#3d444d",letterSpacing:"3px"}}>POKÉWALKER</span>
+          <div style={{width:"8px",height:"8px",borderRadius:"50%",background:stroll?C.green:"#3d444d",boxShadow:stroll?`0 0 8px ${C.green}`:"none",transition:"all .4s"}}/>
+        </div>
+        <div style={{background:"#0b0f14",margin:"0 14px",borderRadius:"10px",minHeight:"308px",border:"1px solid #21262d",padding:"14px",position:"relative",overflow:"hidden"}}>
+          {msg&&<div onClick={()=>setMsg("")} style={{position:"absolute",top:"8px",left:"8px",right:"8px",background:"#1c2128",border:`1px solid ${C.yellow}`,borderRadius:"6px",padding:"8px 12px",fontSize:"11px",color:C.yellow,zIndex:20,cursor:"pointer",animation:"fadeIn .2s"}}>{msg}</div>}
+          {screen==="boot"    && <BootScreen/>}
+          {screen==="setup"   && <SetupScreen setup={setup} setSetup={setSetup} pw={pw} availableRoutes={availableRoutes} onStart={startStroll} onStats={()=>setScreen("stats")}/>}
+          {screen==="home"    && stroll && <HomeScreen stroll={stroll} pw={pw} onMenu={()=>setScreen("menu")} onBalloon={collectBalloon}/>}
+          {screen==="menu"    && stroll && <MenuScreen stroll={stroll} onRadar={startRadar} onDowsing={startDowsing} onStats={()=>setScreen("stats")} onBack={()=>setScreen("home")} onEnd={endStroll}/>}
+          {screen==="radar"   && combat  && <RadarScreen combat={combat} onAction={battleAction} onBack={()=>{setScreen("home");setCombat(null);}}/>}
+          {screen==="dowsing" && dowsing && <DowsingScreen dowsing={dowsing} onChoose={chooseBush} onBack={()=>{setScreen("home");setDowsing(null);}}/>}
+          {screen==="stats"   && <StatsScreen pw={pw} stroll={stroll} onBack={()=>setScreen(stroll?"menu":"setup")} onToggleNat={()=>{ const n={...pw,hasNationalDex:!pw.hasNationalDex}; save(n); }} confirmReset={confirmReset} onReset={()=>setConfirmReset(true)} onResetConfirm={()=>{lsClear();setPw(INIT);setStroll(null);setConfirmReset(false);setScreen("setup");}} onResetCancel={()=>setConfirmReset(false)} onSaveTrainer={(trainer)=>save({...pw,trainer})}/>}
+          {screen==="result"  && result  && <ResultScreen result={result} onNew={()=>{setSetup(BLANK);setScreen("setup");}}/>}
+        </div>
+        <div style={{padding:"10px 20px 18px",display:"flex",justifyContent:"space-between"}}>
+          <span style={{fontSize:"10px",color:C.gray}}>⚡ {stroll?`${stroll.watts}W disponíveis`:`${pw.totalWatts}W acumulados`}</span>
+          <span style={{fontSize:"10px",color:C.gray}}>{stroll?`${stroll.steps.toLocaleString()} passos`:`${(pw.lifetimeSteps||0).toLocaleString()} passos`}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TELAS
+// ═══════════════════════════════════════════════════════════════
+function BootScreen(){
+  return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"280px"}}><div style={{textAlign:"center"}}><div style={{fontSize:"36px",marginBottom:"12px"}}>👣</div><div style={{color:"#3fb950",letterSpacing:"4px",fontSize:"12px",animation:"pulse 1s infinite"}}>POKÉWALKER</div></div></div>;
+}
+
+function SetupScreen({setup,setSetup,pw,availableRoutes,onStart,onStats}){
+  const f=(k,v)=>setSetup(s=>({...s,[k]:v}));
+  const totalWatts=pw?.totalWatts||0;
+  const hasNat=pw?.hasNationalDex||false;
+  const avail=availableRoutes(totalWatts,hasNat);
+  const locked=ROUTES.filter(r=>!r.event&&!avail.find(a=>a.id===r.id));
+  const events=ROUTES.filter(r=>r.event);
+  const seed=strollSeed(parseInt(setup.hour)||0,parseInt(setup.minute)||0,parseInt(setup.second)||0);
+  const canStart=setup.name&&setup.level&&setup.steps&&setup.hour!=="";
+
+  return (
+    <div style={{animation:"slideUp .3s",overflowY:"auto",maxHeight:"280px"}}>
+      <STitle title="ENVIAR POKÉMON" color={C.blue}/>
+      <Grp label="POKÉMON">
+        <Rw label="Nome">      <Inp v={setup.name}      on={v=>f("name",v)}      ph="Nome do Pokémon"/></Rw>
+        <Rw label="Nível">     <Inp v={setup.level}     on={v=>f("level",v)}     ph="Nível" type="number"/></Rw>
+        <Rw label="EXP">       <Inp v={setup.exp}       on={v=>f("exp",v)}       ph="EXP atual" type="number"/></Rw>
+        <Rw label="Felicidade"><Inp v={setup.happiness} on={v=>f("happiness",v)} ph="0–255" type="number"/></Rw>
+      </Grp>
+
+      <Grp label={`ROTAS DESBLOQUEADAS (${avail.length})`}>
+        {avail.map(r=>(
+          <button key={r.id} className="btn" onClick={()=>f("route",r.id)} style={{display:"block",width:"100%",padding:"8px 10px",borderRadius:"6px",fontSize:"11px",textAlign:"left",marginBottom:"4px",background:setup.route===r.id?"#1a2e1a":"#161b22",color:setup.route===r.id?C.green:C.gray,border:`1px solid ${setup.route===r.id?C.green:C.bor}`}}>
+            {setup.route===r.id?"▶ ":"  "}{r.name}
+            <span style={{float:"right",fontSize:"10px",opacity:.5}}>{r.types.join(" · ")}</span>
+          </button>
+        ))}
+
+        {events.length>0&&<>
+          <div style={{fontSize:"9px",color:C.teal,letterSpacing:"1px",margin:"8px 0 4px"}}>EVENTOS</div>
+          {events.map(r=>(
+            <button key={r.id} className="btn" onClick={()=>f("route",r.id)} style={{display:"block",width:"100%",padding:"8px 10px",borderRadius:"6px",fontSize:"11px",textAlign:"left",marginBottom:"4px",background:setup.route===r.id?"#1a2e1a":"#161b22",color:setup.route===r.id?C.teal:C.gray,border:`1px solid ${setup.route===r.id?C.teal:C.bor}`}}>
+              ✨ {r.name}
+            </button>
+          ))}
+        </>}
+
+        {locked.length>0&&<>
+          <div style={{fontSize:"9px",color:C.gray,letterSpacing:"1px",margin:"8px 0 4px"}}>BLOQUEADAS</div>
+          {locked.map(r=>(
+            <div key={r.id} style={{padding:"7px 10px",borderRadius:"6px",fontSize:"11px",marginBottom:"3px",background:"#0d1117",color:"#3d444d",border:"1px solid #21262d"}}>
+              🔒 {r.name}
+              <span style={{float:"right",fontSize:"10px"}}>{r.nat?"Pokédex Nacional":r.watts>0?`${r.watts.toLocaleString()}W`:""}</span>
+            </div>
+          ))}
+        </>}
+
+        {/* Tipos do Pokémon + vantagem calculada */}
+        <div style={{marginTop:"8px"}}>
+          <div style={{fontSize:"9px",color:C.gray,letterSpacing:"1px",marginBottom:"4px"}}>TIPOS DO SEU POKÉMON</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px",marginBottom:"6px"}}>
+            <Inp v={setup.type1} on={v=>f("type1",v)} ph="Tipo 1 (ex: Water)"/>
+            <Inp v={setup.type2} on={v=>f("type2",v)} ph="Tipo 2 (opcional)"/>
+          </div>
+          {(()=>{
+            const selectedRoute=ROUTES.find(r=>r.id===setup.route);
+            const types=[setup.type1,setup.type2].filter(Boolean).map(t=>t.trim());
+            const hasAdv=types.some(t=>selectedRoute?.types?.includes(t));
+            const routeTypes=selectedRoute?.types||[];
+            return (
+              <div style={{padding:"7px 10px",borderRadius:"6px",fontSize:"11px",background:hasAdv?"#1a2e1a":"#161b22",border:`1px solid ${hasAdv?C.green:C.bor}`}}>
+                <div style={{color:C.gray,marginBottom:"3px"}}>Tipos favoráveis desta rota:</div>
+                <div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>
+                  {routeTypes.map(t=>{
+                    const match=types.includes(t);
+                    return <span key={t} style={{padding:"2px 8px",borderRadius:"4px",fontSize:"10px",background:match?"#238636":"#21262d",color:match?"#fff":C.gray,fontWeight:match?"bold":"normal"}}>{t}{match?" ✓":""}</span>;
+                  })}
+                </div>
+                {types.length>0&&<div style={{marginTop:"5px",fontSize:"10px",color:hasAdv?C.green:C.gray}}>{hasAdv?"✓ Vantagem ativa — req. de passos −25%":"✗ Sem vantagem de tipo nesta rota"}</div>}
+              </div>
+            );
+          })()}
+        </div>
+      </Grp>
+
+      <Grp label="PASSOS E HORÁRIO">
+        <Rw label="Passos"><Inp v={setup.steps} on={v=>f("steps",v)} ph="Passos do Google Fit" type="number"/></Rw>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px",marginTop:"4px"}}>
+          {[["hour","Hora"],["minute","Min"],["second","Seg"]].map(([k,lbl])=>(
+            <div key={k}><div style={{fontSize:"9px",color:C.gray,marginBottom:"3px"}}>{lbl}</div><Inp v={setup[k]} on={v=>f(k,v)} ph="0" type="number"/></div>
+          ))}
+        </div>
+        <div style={{fontSize:"9px",color:"#3d444d",marginTop:"4px"}}>Seed: {"0x"+seed.toString(16).toUpperCase().padStart(8,"0")}</div>
+      </Grp>
+
+      <Btn onClick={onStart} disabled={!canStart} color={C.gdim} label="▶ INICIAR PASSEIO"/>
+      <button className="btn" onClick={onStats} style={{display:"block",width:"100%",padding:"9px",borderRadius:"8px",marginTop:"6px",background:"transparent",border:`1px solid ${C.bor}`,color:C.gray,fontSize:"11px",letterSpacing:"1px"}}>
+        📊 ESTATÍSTICAS E HISTÓRICO
+      </button>
+    </div>
+  );
+}
+
+function HomeScreen({stroll,pw,onMenu,onBalloon}){
+  const poke=stroll.pokemon;
+  const hearts=Math.min(5,Math.floor(poke.happiness/51));
+  const projectedTotal=(pw?.totalWatts||0)+stroll.watts;
+  return (
+    <div style={{animation:"slideUp .25s"}}>
+      <div style={{textAlign:"center",padding:"8px 0 10px"}}>
+        <div style={{fontSize:"56px",marginBottom:"4px",textAlign:"center"}}>{EMOJI[poke.name]||"🦎"}</div>
+        <div style={{fontSize:"18px",fontWeight:"bold",color:C.white}}>{poke.name}</div>
+        <div style={{fontSize:"11px",color:C.gray,marginTop:"2px"}}>Lv.{poke.level} · {stroll.route.name}</div>
+        <div style={{fontSize:"13px",color:C.pink,marginTop:"4px"}}>{"♥".repeat(hearts)}{"♡".repeat(Math.max(0,5-hearts))}</div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px",marginBottom:"10px"}}>
+        <Pill label="Passos" value={stroll.steps.toLocaleString()} color={C.blue}/>
+        <Pill label="Watts"  value={`${stroll.watts}W`}           color={C.yellow}/>
+        <Pill label="EXP +"  value={`+${stroll.steps}`}           color={C.amber}/>
+      </div>
+      {stroll.balloon&&!stroll.balloonCollected&&(
+        <div onClick={onBalloon} style={{background:"#1a2e1a",border:`1px solid ${C.green}`,borderRadius:"8px",padding:"10px",marginBottom:"10px",cursor:"pointer",textAlign:"center",animation:"pulse 1.4s infinite"}}>
+          <div style={{fontSize:"20px"}}>💬</div>
+          <div style={{fontSize:"11px",color:C.green,marginTop:"2px"}}>{poke.name} encontrou {stroll.balloon.label}!</div>
+          <div style={{fontSize:"9px",color:C.gray,marginTop:"2px"}}>Toque para coletar</div>
+        </div>
+      )}
+      <div style={{display:"flex",gap:"6px",marginBottom:"12px"}}>
+        <ISlot label="Pokémon" count={stroll.capturedPokemon.length} max={3} color={C.purple}/>
+        <ISlot label="Itens"   count={stroll.foundItems.length}      max={3} color={C.green}/>
+        <ISlot label="W total" value={`${projectedTotal}W`}               color={C.yellow}/>
+      </div>
+      <Btn onClick={onMenu} label="▼ MENU" color="#21262d" bor={C.bor}/>
+    </div>
+  );
+}
+
+function MenuScreen({stroll,onRadar,onDowsing,onStats,onBack,onEnd}){
+  const fp=stroll.capturedPokemon.length>=3, fi=stroll.foundItems.length>=3;
+  return (
+    <div style={{animation:"slideUp .2s"}}>
+      <TBar title="MENU" onBack={onBack}/>
+      <div style={{display:"flex",flexDirection:"column",gap:"7px",marginTop:"6px"}}>
+        <MBtn icon="🎯" label="Poké Radar"    color={C.red}   sub={fp?"Inventário cheio (3/3)":`10W · você tem ${stroll.watts}W`} disabled={stroll.watts<10||fp} onClick={onRadar}/>
+        <MBtn icon="🔍" label="Dowsing MCHN"  color={C.blue}  sub={fi?"Inventário cheio (3/3)":`3W · você tem ${stroll.watts}W`}  disabled={stroll.watts<3||fi}  onClick={onDowsing}/>
+        <MBtn icon="📊" label="Estatísticas"  color={C.gray}  sub="Histórico e rotas" onClick={onStats}/>
+        <div style={{height:"1px",background:C.bor,margin:"2px 0"}}/>
+        <MBtn icon="🏠" label="Retornar ao DS" color={C.green} sub={`Encerrar · retornar ${stroll.watts}W ao jogo`} onClick={onEnd}/>
+      </div>
+      {(stroll.capturedPokemon.length>0||stroll.foundItems.length>0)&&(
+        <div style={{marginTop:"10px",padding:"10px",background:"#161b22",borderRadius:"8px",border:`1px solid ${C.bor}`}}>
+          <div style={{fontSize:"9px",color:C.gray,letterSpacing:"1px",marginBottom:"6px"}}>INVENTÁRIO DO PASSEIO</div>
+          {stroll.capturedPokemon.map((p,i)=><div key={i} style={{fontSize:"11px",color:C.purple,marginBottom:"3px"}}>{p.shiny?"✨":EMOJI[p.name]||"🔵"} {p.name} {p.gender} Lv.{p.level}{p.shiny?" ⭐SHINY":""}</div>)}
+          {stroll.foundItems.map((it,i)=><div key={i} style={{fontSize:"11px",color:C.green,marginBottom:"3px"}}>🎒 {it.name}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RadarScreen({combat,onAction,onBack}){
+  const {wild,playerHP,wildHP,log,over,result}=combat;
+  const hint=wildHP>=3?"Baixa":wildHP===2?"Média":"Alta";
+  return (
+    <div style={{animation:"slideUp .2s"}}>
+      <TBar title="POKÉ RADAR" onBack={over?onBack:null}/>
+      <div style={{textAlign:"center",margin:"6px 0 10px"}}>
+        <div style={{fontSize:"40px",textAlign:"center"}}>{EMOJI[wild.name]||"❓"}</div>
+        <div style={{fontSize:"15px",fontWeight:"bold",color:C.amber,marginTop:"4px"}}>{wild.name} {wild.gender} Lv.{wild.level}</div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:"10px"}}>
+        <HPB label="Você"     hp={playerHP} max={4} color={C.green}/>
+        <HPB label={wild.name} hp={wildHP}  max={4} color={C.red}/>
+      </div>
+      <div style={{background:"#161b22",borderRadius:"6px",padding:"8px 10px",minHeight:"62px",maxHeight:"80px",overflowY:"auto",border:`1px solid ${C.bor}`,marginBottom:"10px"}}>
+        {log.slice(-4).map((l,i)=><div key={i} style={{fontSize:"11px",color:C.white,marginBottom:"2px"}}>▸ {l}</div>)}
+      </div>
+      {!over?(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px"}}>
+          <ABt icon="⚔️" label="Atacar"   sub="1 dano (crítico 2)" color={C.red}  onClick={()=>onAction("attack")}/>
+          <ABt icon="🛡️" label="Esquivar" sub="Esquiva+contra-ataque" color={C.blue} onClick={()=>onAction("evade")}/>
+          <ABt icon="🔴" label="Capturar" sub={`Chance: ${hint}`} color={wildHP<=2?C.green:C.gray} onClick={()=>onAction("catch")}/>
+        </div>
+      ):(
+        <div style={{textAlign:"center",paddingTop:"4px"}}>
+          <div style={{fontSize:"14px",fontWeight:"bold",marginBottom:"12px",color:result==="caught"?C.green:result==="fainted"?C.amber:C.red}}>
+            {result==="caught"&&`✓ ${wild.name} capturado!`}
+            {result==="fainted"&&`${wild.name} desmaiou!`}
+            {result==="escaped"&&`${wild.name} fugiu...`}
+            {result==="lost"&&"Você foi derrotado..."}
+          </div>
+          <Btn onClick={onBack} label="VOLTAR" color={C.gdim}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DowsingScreen({dowsing,onChoose,onBack}){
+  return (
+    <div style={{animation:"slideUp .2s"}}>
+      <TBar title="DOWSING MCHN" onBack={dowsing.over?onBack:null}/>
+      <div style={{textAlign:"center",minHeight:"40px",margin:"8px 0 14px"}}>
+        {!dowsing.over&&!dowsing.hint&&<div style={{fontSize:"11px",color:C.gray}}>Escolha um arbusto</div>}
+        {dowsing.hint&&!dowsing.over&&<div style={{fontSize:"13px",color:C.yellow,fontWeight:"bold"}}>{dowsing.hint}</div>}
+        {dowsing.over&&<div style={{fontSize:"13px",fontWeight:"bold",color:dowsing.result==="found"?C.green:C.red}}>{dowsing.result==="found"?`✓ ${dowsing.item.name} encontrado!`:"Nada encontrado..."}</div>}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px",margin:"0 4px 16px"}}>
+        {[0,1,2,3,4,5].map(i=>{
+          const ok=dowsing.over&&i===dowsing.pos, bad=dowsing.over&&i===dowsing.chosen&&i!==dowsing.pos, hint=!dowsing.over&&i===dowsing.chosen;
+          const dis=dowsing.over||(dowsing.attempts>0&&i===dowsing.chosen);
+          return <button key={i} className={`btn${dis?"":" bush"}`} onClick={()=>onChoose(i)} disabled={dis} style={{padding:"20px 0",borderRadius:"8px",fontSize:"22px",background:ok?"#1a2e1a":bad?"#2d1a1a":hint?"#1c2128":"#161b22",border:`1px solid ${ok?C.green:bad?C.red:hint?C.yellow:C.bor}`,cursor:dis?"default":"pointer",opacity:dis&&!ok&&!bad?0.5:1}}>{ok?"✨":bad?"✗":hint?"❓":"🌿"}</button>;
+        })}
+      </div>
+      {dowsing.over&&<Btn onClick={onBack} label="VOLTAR" color={C.gdim}/>}
+    </div>
+  );
+}
+
+function StatsScreen({pw,stroll,onBack,onToggleNat,onReset,onResetConfirm,onResetCancel,confirmReset,onSaveTrainer}){
+  const [editTrainer,setEditTrainer] = React.useState(false);
+  const [t,setT] = React.useState({...pw.trainer});
+  const f=(k,v)=>setT(s=>({...s,[k]:v}));
+  return (
+    <div style={{animation:"slideUp .2s",overflowY:"auto",maxHeight:"280px"}}>
+      <TBar title="ESTATÍSTICAS" onBack={onBack}/>
+      <div style={{marginTop:"6px"}}>
+        <div style={{background:"#161b22",border:`1px solid ${C.bor}`,borderRadius:"8px",padding:"10px 12px",marginBottom:"10px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"}}>
+            <div style={{fontSize:"9px",color:C.gray,letterSpacing:"2px"}}>TREINADOR</div>
+            <button className="btn" onClick={()=>{setT({...pw.trainer});setEditTrainer(e=>!e);}} style={{padding:"3px 8px",borderRadius:"4px",background:"#21262d",border:`1px solid ${C.bor}`,color:C.gray,fontSize:"10px"}}>
+              {editTrainer?"Cancelar":"Editar"}
+            </button>
+          </div>
+          {!editTrainer ? (
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:"15px",fontWeight:"bold",color:pw.trainer.name?C.white:C.gray}}>{pw.trainer.name||"(sem nome)"}</div>
+                <div style={{fontSize:"10px",color:C.gray,marginTop:"2px"}}>{pw.trainer.game} - {pw.trainer.lang}</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:"10px",color:C.gray}}>TID: <span style={{color:C.white}}>{String(pw.trainer.tid).padStart(5,"0")}</span></div>
+                <div style={{fontSize:"10px",color:C.gray}}>SID: <span style={{color:C.white}}>{String(pw.trainer.sid).padStart(5,"0")}</span></div>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <Rw label="Nome"><Inp v={t.name} on={v=>f("name",v)} ph="Nome do treinador"/></Rw>
+              <Rw label="TID"><Inp v={String(t.tid)} on={v=>f("tid",v)} ph="0-65535" type="number"/></Rw>
+              <Rw label="SID"><Inp v={String(t.sid)} on={v=>f("sid",v)} ph="0-65535" type="number"/></Rw>
+              <Rw label="Jogo">
+                <select value={t.game} onChange={e=>f("game",e.target.value)} style={{width:"100%",padding:"6px 8px",background:"#21262d",border:`1px solid ${C.bor}`,borderRadius:"5px",color:C.white,fontFamily:"'Courier New',monospace",fontSize:"12px",outline:"none"}}>
+                  <option>HeartGold</option>
+                  <option>SoulSilver</option>
+                </select>
+              </Rw>
+              <Rw label="Idioma">
+                <select value={t.lang} onChange={e=>f("lang",e.target.value)} style={{width:"100%",padding:"6px 8px",background:"#21262d",border:`1px solid ${C.bor}`,borderRadius:"5px",color:C.white,fontFamily:"'Courier New',monospace",fontSize:"12px",outline:"none"}}>
+                  <option>Portugues</option>
+                  <option>Ingles</option>
+                  <option>Espanhol</option>
+                  <option>Japones</option>
+                  <option>Frances</option>
+                  <option>Alemao</option>
+                  <option>Italiano</option>
+                </select>
+              </Rw>
+              <button className="btn" onClick={()=>{onSaveTrainer({name:t.name,tid:parseInt(t.tid)||0,sid:parseInt(t.sid)||0,game:t.game,lang:t.lang});setEditTrainer(false);}} style={{width:"100%",padding:"8px",borderRadius:"6px",background:C.gdim,border:"none",color:"#fff",fontSize:"11px",fontWeight:"bold",marginTop:"4px"}}>
+                Salvar treinador
+              </button>
+            </div>
+          )}
+        </div>
+        <SR label="Watts acumulados"    v={`${pw.totalWatts.toLocaleString()}W`} c={C.yellow}/>
+        <SR label="Passos totais"       v={(pw.lifetimeSteps||0).toLocaleString()}  c={C.blue}/>
+        <SR label="Rotas desbloqueadas" v={`${pw.unlockedRoutes.length} / ${ROUTES.filter(r=>!r.event).length}`} c={C.green}/>
+        <SR label="Passeios realizados" v={pw.sessions.length}                     c={C.purple}/>
+        <SR label="Pokédex Nacional"    v={pw.hasNationalDex?"Obtida":"Nao obtida"} c={pw.hasNationalDex?C.green:C.gray}/>
+        <button className="btn" onClick={onToggleNat} style={{width:"100%",padding:"8px",borderRadius:"6px",background:"#161b22",border:`1px solid ${C.bor}`,color:C.gray,fontSize:"10px",marginTop:"6px",marginBottom:"4px"}}>
+          {pw.hasNationalDex?"Remover Pokedex Nacional":"Marcar Pokedex Nacional"}
+        </button>
+        {!confirmReset ? (
+          <button className="btn" onClick={onReset} style={{width:"100%",padding:"8px",borderRadius:"6px",background:"#161b22",border:"1px solid #7f1d1d",color:"#ef4444",fontSize:"10px",marginBottom:"8px"}}>
+            Apagar save e comecar novo
+          </button>
+        ) : (
+          <div style={{background:"#2d1a1a",border:"1px solid #7f1d1d",borderRadius:"8px",padding:"12px",marginBottom:"8px",textAlign:"center"}}>
+            <div style={{fontSize:"11px",color:"#ef4444",fontWeight:"bold",marginBottom:"8px"}}>Tem certeza? Isso apaga TODO o progresso.</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
+              <button className="btn" onClick={onResetConfirm} style={{padding:"8px",borderRadius:"6px",background:"#7f1d1d",border:"none",color:"#fff",fontSize:"11px",fontWeight:"bold"}}>
+                Confirmar
+              </button>
+              <button className="btn" onClick={onResetCancel} style={{padding:"8px",borderRadius:"6px",background:"#21262d",border:`1px solid ${C.bor}`,color:C.gray,fontSize:"11px"}}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {stroll&&<>
+          <Dv label="PASSEIO ATUAL"/>
+          <SR label="Rota"   v={stroll.route.name}/>
+          <SR label="Passos" v={stroll.steps.toLocaleString()}/>
+          <SR label="Watts disponíveis" v={`${stroll.watts}W`} c={C.yellow}/>
+          <SR label="Pokémon capturados" v={`${stroll.capturedPokemon.length}/3`} c={C.purple}/>
+          <SR label="Itens encontrados"  v={`${stroll.foundItems.length}/3`}      c={C.green}/>
+        </>}
+
+        {pw.sessions.length>0&&<>
+          <Dv label="ÚLTIMOS PASSEIOS"/>
+          {pw.sessions.slice(0,6).map(s=>(
+            <div key={s.id} style={{background:"#161b22",borderRadius:"6px",padding:"8px 10px",marginBottom:"5px",border:`1px solid ${C.bor}`}}>
+              <div style={{fontSize:"11px",color:C.white,marginBottom:"3px"}}>{s.pokemon} · {s.route}<span style={{float:"right",fontSize:"10px",color:C.gray}}>{s.date}</span></div>
+              <div style={{fontSize:"10px",color:C.gray}}>{s.steps.toLocaleString()} passos · +{s.wattsReturned}W · +{s.expAfter-s.expBefore} EXP{s.leveledUp&&<span style={{color:C.green}}> · ↑Lv.{s.levelAfter}</span>}</div>
+            </div>
+          ))}
+        </>}
+      </div>
+    </div>
+  );
+}
+
+function ResultScreen({result,onNew}){
+  const {sess:s,newTotal,newUnlocked,prevTotal}=result;
+  const newRoutes=ROUTES.filter(r=>r.watts<=newTotal&&r.watts>prevTotal&&!r.event&&(!r.nat||result.newNat));
+  return (
+    <div style={{animation:"slideUp .3s",overflowY:"auto",maxHeight:"280px"}}>
+      <div style={{textAlign:"center",marginBottom:"14px"}}>
+        <div style={{fontSize:"28px"}}>🏠</div>
+        <div style={{fontSize:"12px",color:C.green,letterSpacing:"2px",marginTop:"4px"}}>RETORNOU AO DS</div>
+      </div>
+      <Grp label="ATUALIZE NO PKHEX">
+        <SR label="EXP"        v={`${s.expBefore.toLocaleString()} → ${s.expAfter.toLocaleString()}`} c={C.amber}/>
+        {s.leveledUp&&<SR label="LEVEL UP!" v={`Lv.${s.levelBefore} → Lv.${s.levelAfter}`} c={C.green}/>}
+        <SR label="Felicidade" v={`${s.hapBefore} → ${s.hapAfter}`} c={C.pink}/>
+      </Grp>
+      <Grp label="WATTS">
+        <SR label="Gerados (passos)"  v={`+${s.wattsFromSteps}W`}  c={C.gray}/>
+        {s.balloonWatts>0&&<SR label="Balão coletado"  v={`+${s.balloonWatts}W`} c={C.green}/>}
+        {s.wattsSpent>0  &&<SR label="Gastos (minijogos)" v={`−${s.wattsSpent}W`} c={C.red}/>}
+        <SR label="Retornados ao DS"  v={`+${s.wattsReturned}W`}  c={C.yellow}/>
+        <SR label="Total acumulado"   v={`${newTotal.toLocaleString()}W`} c={C.yellow}/>
+      </Grp>
+      {(s.capturedPokemon.length>0||s.foundItems.length>0)&&(
+        <Grp label="ADICIONE AO JOGO">
+          {s.capturedPokemon.map((p,i)=><SR key={i} label="Pokémon" v={`${EMOJI[p.name]||"🔵"} {p.name} ${p.gender} Lv.${p.level}`} c={C.purple}/>)}
+          {s.foundItems.map((it,i)=><SR key={i} label="Item" v={it.name||it} c={C.green}/>)}
+        </Grp>
+      )}
+      {newRoutes.length>0&&(
+        <div style={{background:"#1a2e1a",border:`1px solid ${C.green}`,borderRadius:"8px",padding:"10px",marginBottom:"10px"}}>
+          <div style={{fontSize:"11px",color:C.green,fontWeight:"bold",marginBottom:"4px"}}>🔓 Nova rota desbloqueada!</div>
+          {newRoutes.map(r=><div key={r.id} style={{fontSize:"11px",color:C.white}}>▸ {r.name}</div>)}
+        </div>
+      )}
+      <Btn onClick={onNew} label="▶ NOVO PASSEIO" color={C.gdim}/>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// EMOJIS
+// ═══════════════════════════════════════════════════════════════
+const EMOJI={
+  Croconaw:"🐊",Pidgey:"🐦",Sentret:"🐿️",Doduo:"🦤","Nidoran♀":"💜","Nidoran♂":"💙",
+  Kangaskhan:"🦘",Wobbuffet:"😶",Bellsprout:"🌱",Venonat:"🪲",Paras:"🍄",
+  Oddish:"🌿",Spearow:"🦅",Magby:"🔥",Onix:"🪨",Machop:"💪",Ponyta:"🐴",
+  Hoothoot:"🦉",Geodude:"🪨",Psyduck:"🐥",Staryu:"⭐",Slowpoke:"🌸",Poliwag:"💧",
+  Sunkern:"🌻",Wooper:"💧",Elekid:"⚡",Magnemite:"🔩",Murkrow:"🐦‍⬛",Rattata:"🐭",
+  Duskull:"💀",Misdreavus:"👻",Gastly:"👻",Zubat:"🦇",Dratini:"🐲",Gyarados:"🐉",
+  Goldeen:"🐟",Magikarp:"🐟",Tentacool:"🪼",Munchlax:"🐻",Lickitung:"👅",
+  Chansey:"🩷",Ekans:"🐍",Meowth:"🐱",Roselia:"🌹",Electrike:"⚡",Shroomish:"🍄",
+  Zigzagoon:"🦡",Taillow:"🐦",Wurmple:"🐛",Corsola:"🪸",Wingull:"🐦",Corphish:"🦀",
+  Wailmer:"🐳",Torkoal:"🐢",Slugma:"🌋",Numel:"🌋",Breloom:"🍄",Tropius:"🦕",
+  Seedot:"🌰",Absol:"🌑",Shuppet:"👻",Sableye:"💎",Pachirisu:"⚡",Buizel:"🦦",
+  Bidoof:"🦫",Starly:"🐦",Sneasel:"❄️",Smoochum:"💋",Swinub:"🐗",Snorunt:"❄️",
+  Scyther:"🦗",Heracross:"🪲",Caterpie:"🐛",Weedle:"🐛",Metapod:"🫘",Kakuna:"🫘",
+  Relicanth:"🐟",Lapras:"🐬",Golduck:"🦆",Slowbro:"🌸",Marill:"💙",Lanturn:"💡",
+  Octillery:"🐙",Krabby:"🦀",Shellder:"🐚",Blissey:"🩷",Togekiss:"🕊️",Togepi:"🥚",
+  Clefairy:"⭐",Jigglypuff:"🎤","Mr. Mime":"🤡",Jynx:"💋",Dunsparce:"🐍",
+  Pikachu:"⚡",Pichu:"⚡",Spinda:"🐼",Smeargle:"🎨",Tyrogue:"🥊",Mankey:"🐒",
+  Meditite:"🧘",Miltank:"🐄",Porygon:"💾",Finneon:"🐟",Lumineon:"🐟",Bronzor:"🪙",
+  Horsea:"🐴",Beldum:"🤖",Eevee:"🦊",Skitty:"🐱",Plusle:"⚡",Minun:"⚡",
+  Snubbull:"🐶",Jirachi:"⭐",Starmie:"⭐",Cleffa:"⭐",
+};
+
+// ═══════════════════════════════════════════════════════════════
+// MICRO-COMPONENTES
+// ═══════════════════════════════════════════════════════════════
+const STitle=({title,color})=><div style={{fontSize:"10px",color:color||C.blue,letterSpacing:"2px",marginBottom:"12px",textAlign:"center"}}>{title}</div>;
+const TBar=({title,onBack})=>(
+  <div style={{display:"flex",alignItems:"center",gap:"8px",marginBottom:"8px"}}>
+    {onBack&&<button className="btn" onClick={onBack} style={{padding:"4px 8px",borderRadius:"5px",background:"#21262d",border:`1px solid ${C.bor}`,color:C.gray,fontSize:"11px"}}>◀</button>}
+    <span style={{fontSize:"11px",color:C.blue,letterSpacing:"2px",fontWeight:"bold"}}>{title}</span>
+  </div>
+);
+const Grp=({label,children})=><div style={{marginBottom:"10px"}}><div style={{fontSize:"9px",color:C.gray,letterSpacing:"2px",marginBottom:"5px"}}>{label}</div>{children}</div>;
+const Dv=({label})=><div style={{fontSize:"9px",color:C.gray,letterSpacing:"2px",padding:"8px 0 4px"}}>{label}</div>;
+const Rw=({label,children})=><div style={{display:"flex",alignItems:"center",gap:"8px",marginBottom:"5px"}}><div style={{fontSize:"10px",color:C.gray,minWidth:"82px"}}>{label}</div><div style={{flex:1}}>{children}</div></div>;
+const Inp=({v,on,type="text",ph=""})=><input type={type} value={v} placeholder={ph} onChange={e=>on(e.target.value)} style={{width:"100%",padding:"6px 8px",background:"#21262d",border:`1px solid ${C.bor}`,borderRadius:"5px",color:C.white,fontFamily:"'Courier New',monospace",fontSize:"12px",boxSizing:"border-box",outline:"none"}}/>;
+const Btn=({onClick,label,disabled,color,bor})=><button className="btn" onClick={onClick} disabled={disabled} style={{display:"block",width:"100%",padding:"11px",borderRadius:"8px",background:disabled?"#21262d":(color||C.gdim),border:`1px solid ${bor||(disabled?"#21262d":(color||C.gdim))}`,color:disabled?C.gray:"#fff",fontSize:"12px",letterSpacing:"2px",fontWeight:"bold"}}>{label}</button>;
+const Pill=({label,value,color})=><div style={{background:"#161b22",border:`1px solid ${C.bor}`,borderRadius:"6px",padding:"6px 4px",textAlign:"center"}}><div style={{fontSize:"9px",color:C.gray,marginBottom:"2px"}}>{label}</div><div style={{fontSize:"12px",color:color||C.white,fontWeight:"bold"}}>{value}</div></div>;
+const ISlot=({label,count,max,value,color})=><div style={{flex:1,background:"#161b22",border:`1px solid ${C.bor}`,borderRadius:"6px",padding:"5px 4px",textAlign:"center"}}><div style={{fontSize:"9px",color:C.gray,marginBottom:"2px"}}>{label}</div><div style={{fontSize:"11px",color:color||C.white,fontWeight:"bold"}}>{value!==undefined?value:`${count}/${max}`}</div></div>;
+const SR=({label,v,c})=><div style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid #21262d",fontSize:"11px"}}><span style={{color:C.gray}}>{label}</span><span style={{color:c||C.white,fontWeight:"bold"}}>{v}</span></div>;
+const HPB=({label,hp,max,color})=><div><div style={{display:"flex",justifyContent:"space-between",fontSize:"10px",marginBottom:"3px"}}><span style={{color:C.gray}}>{label}</span><span style={{color}}>{hp}/{max}</span></div><div style={{background:"#21262d",borderRadius:"3px",height:"7px",overflow:"hidden"}}><div style={{width:`${(hp/max)*100}%`,height:"100%",background:color,borderRadius:"3px",transition:"width .3s"}}/></div></div>;
+const MBtn=({icon,label,sub,disabled,onClick,color})=><button className="btn" onClick={onClick} disabled={disabled} style={{padding:"10px 12px",borderRadius:"8px",textAlign:"left",width:"100%",background:disabled?"#0d1117":"#161b22",border:`1px solid ${disabled?"#21262d":color||C.bor}`,opacity:disabled?0.45:1}}><div style={{display:"flex",alignItems:"center",gap:"10px"}}><span style={{fontSize:"18px"}}>{icon}</span><div><div style={{fontSize:"12px",color:disabled?C.gray:C.white,fontWeight:"bold"}}>{label}</div><div style={{fontSize:"10px",color:disabled?C.red:C.gray,marginTop:"1px"}}>{sub}</div></div></div></button>;
+const ABt=({icon,label,sub,onClick,color})=><button className="btn" onClick={onClick} style={{padding:"10px 4px",borderRadius:"8px",textAlign:"center",background:"#161b22",border:`1px solid ${color||C.bor}`}}><div style={{fontSize:"20px"}}>{icon}</div><div style={{fontSize:"10px",color:C.white,fontWeight:"bold",marginTop:"3px"}}>{label}</div><div style={{fontSize:"9px",color:C.gray,marginTop:"1px"}}>{sub}</div></button>;
+
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<Pokewalker/>);
+  </script>
+</body>
+</html>
