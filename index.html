@@ -718,25 +718,24 @@ function Pokewalker(){
 
   // ── INICIAR PASSEIO ─────────────────────────────────────
   const startStroll=()=>{
-    const h=parseInt(setup.hour)||0,m=parseInt(setup.minute)||0,s=parseInt(setup.second)||0;
+    const now=new Date();
+    const h=now.getHours(), m=now.getMinutes(), s=now.getSeconds();
     const seed=strollSeed(h,m,s);
     const lcg=new LCG(seed), irng=new IRNG(seed^0xAA55AA55);
     const route=ROUTES.find(r=>r.id===setup.route);
     const pool=selectStrollPool(route,lcg);
     lcgRef.current=lcg; irngRef.current=irng;
-    const steps=parseInt(setup.steps)||0;
-    const watts=Math.floor(steps/20);
     const happiness=parseInt(setup.happiness)||70;
     const irngBalloon=new IRNG(seed^0xAA55AA55);
     const balloon=resolveBalloon(happiness,irngBalloon);
     const pkmTypes=[setup.type1,setup.type2].filter(Boolean).map(t=>t.trim());
-    const route2=ROUTES.find(r=>r.id===setup.route);
-    const typeAdv=pkmTypes.some(t=>route2?.types?.includes(t));
+    const typeAdv=pkmTypes.some(t=>route?.types?.includes(t));
     const pokemon={name:setup.name||"?",level:parseInt(setup.level)||1,exp:parseInt(setup.exp)||0,happiness};
     const newUnlocked=availableRoutes(pw?.totalWatts||0,pw?.hasNationalDex||false).map(r=>r.id);
     save({...pw,currentPokemon:pokemon,unlockedRoutes:newUnlocked});
-    setStroll({route,pool,steps,watts,wattsFromSteps:watts,wattsSpent:0,balloonWatts:0,
+    setStroll({route,pool,steps:0,watts:0,wattsFromSteps:0,wattsSpent:0,balloonWatts:0,
       seed:"0x"+seed.toString(16).toUpperCase().padStart(8,"0"),
+      startTime:Date.now(),
       pokemon,typeAdv,capturedPokemon:[],foundItems:[],balloon,balloonCollected:false});
     setSetup(BLANK);
     setScreen("home");
@@ -746,6 +745,26 @@ function Pokewalker(){
     if(!stroll||stroll.watts<cost){ toast(`Watts insuficientes! (${stroll?.watts||0}W)`); return false; }
     setStroll(s=>({...s,watts:s.watts-cost,wattsSpent:s.wattsSpent+cost}));
     return true;
+  };
+
+  // ── ADICIONAR PASSOS AO LONGO DO DIA ──────────────────
+  const addSteps=(n)=>{
+    if(!n||n<=0) return;
+    const newSteps = (stroll.steps||0) + n;
+    const newWatts = Math.floor(newSteps/20);
+    const addedWatts = newWatts - Math.floor((stroll.steps||0)/20);
+    // Re-rola o balão se ainda não foi coletado
+    const seed = parseInt(stroll.seed,16);
+    const irngBalloon = new IRNG(seed^0xAA55AA55);
+    const balloon = stroll.balloonCollected ? null : resolveBalloon(stroll.pokemon.happiness, irngBalloon);
+    setStroll(s=>({...s,
+      steps: newSteps,
+      watts: s.watts + addedWatts,
+      wattsFromSteps: newWatts,
+      balloon: s.balloonCollected ? s.balloon : balloon,
+    }));
+    if(addedWatts>0) toast(`+${n} passos · +${addedWatts}W gerados!`);
+    else toast(`+${n} passos adicionados!`);
   };
 
   const collectBalloon=()=>{
@@ -889,8 +908,8 @@ function Pokewalker(){
           {msg&&<div onClick={()=>setMsg("")} style={{position:"absolute",top:"8px",left:"8px",right:"8px",background:"#1c2128",border:`1px solid ${C.yellow}`,borderRadius:"6px",padding:"8px 12px",fontSize:"11px",color:C.yellow,zIndex:20,cursor:"pointer",animation:"fadeIn .2s"}}>{msg}</div>}
           {screen==="boot"    && <BootScreen/>}
           {screen==="setup"   && <SetupScreen setup={setup} setSetup={setSetup} pw={pw} availableRoutes={availableRoutes} onStart={startStroll} onStats={()=>setScreen("stats")}/>}
-          {screen==="home"    && stroll && <HomeScreen stroll={stroll} pw={pw} onMenu={()=>setScreen("menu")} onBalloon={collectBalloon}/>}
-          {screen==="menu"    && stroll && <MenuScreen stroll={stroll} onRadar={startRadar} onDowsing={startDowsing} onStats={()=>setScreen("stats")} onBack={()=>setScreen("home")} onEnd={endStroll}/>}
+          {screen==="home"    && stroll && <HomeScreen stroll={stroll} pw={pw} onMenu={()=>setScreen("menu")} onBalloon={collectBalloon} onAddSteps={addSteps}/>}
+          {screen==="menu"    && stroll && <MenuScreen stroll={stroll} onRadar={startRadar} onDowsing={startDowsing} onStats={()=>setScreen("stats")} onBack={()=>setScreen("home")} onEnd={endStroll} onAddSteps={addSteps}/>}
           {screen==="radar"   && combat  && <RadarScreen combat={combat} onAction={battleAction} onBack={()=>{setScreen("home");setCombat(null);}}/>}
           {screen==="dowsing" && dowsing && <DowsingScreen dowsing={dowsing} onChoose={chooseBush} onBack={()=>{setScreen("home");setDowsing(null);}}/>}
           {screen==="stats"   && <StatsScreen pw={pw} stroll={stroll} onBack={()=>setScreen(stroll?"menu":"setup")} onToggleNat={()=>{ const n={...pw,hasNationalDex:!pw.hasNationalDex}; save(n); }} confirmReset={confirmReset} onReset={()=>setConfirmReset(true)} onResetConfirm={()=>{lsClear();setPw(INIT);setStroll(null);setConfirmReset(false);setScreen("setup");}} onResetCancel={()=>setConfirmReset(false)} onSaveTrainer={(trainer)=>save({...pw,trainer})}/>}
@@ -919,8 +938,7 @@ function SetupScreen({setup,setSetup,pw,availableRoutes,onStart,onStats}){
   const avail=availableRoutes(totalWatts,hasNat);
   const locked=ROUTES.filter(r=>!r.event&&!avail.find(a=>a.id===r.id));
   const events=ROUTES.filter(r=>r.event);
-  const seed=strollSeed(parseInt(setup.hour)||0,parseInt(setup.minute)||0,parseInt(setup.second)||0);
-  const canStart=setup.name&&setup.level&&setup.steps&&setup.hour!=="";
+  const canStart=setup.name&&setup.level;
 
   return (
     <div style={{animation:"slideUp .3s",overflowY:"auto",maxHeight:"280px"}}>
@@ -987,16 +1005,6 @@ function SetupScreen({setup,setSetup,pw,availableRoutes,onStart,onStats}){
         </div>
       </Grp>
 
-      <Grp label="PASSOS E HORÁRIO">
-        <Rw label="Passos"><Inp v={setup.steps} on={v=>f("steps",v)} ph="Passos do Google Fit" type="number"/></Rw>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px",marginTop:"4px"}}>
-          {[["hour","Hora"],["minute","Min"],["second","Seg"]].map(([k,lbl])=>(
-            <div key={k}><div style={{fontSize:"9px",color:C.gray,marginBottom:"3px"}}>{lbl}</div><Inp v={setup[k]} on={v=>f(k,v)} ph="0" type="number"/></div>
-          ))}
-        </div>
-        <div style={{fontSize:"9px",color:"#3d444d",marginTop:"4px"}}>Seed: {"0x"+seed.toString(16).toUpperCase().padStart(8,"0")}</div>
-      </Grp>
-
       <Btn onClick={onStart} disabled={!canStart} color={C.gdim} label="▶ INICIAR PASSEIO"/>
       <button className="btn" onClick={onStats} style={{display:"block",width:"100%",padding:"9px",borderRadius:"8px",marginTop:"6px",background:"transparent",border:`1px solid ${C.bor}`,color:C.gray,fontSize:"11px",letterSpacing:"1px"}}>
         📊 ESTATÍSTICAS E HISTÓRICO
@@ -1005,10 +1013,12 @@ function SetupScreen({setup,setSetup,pw,availableRoutes,onStart,onStats}){
   );
 }
 
-function HomeScreen({stroll,pw,onMenu,onBalloon}){
+function HomeScreen({stroll,pw,onMenu,onBalloon,onAddSteps}){
   const poke=stroll.pokemon;
   const hearts=Math.min(5,Math.floor(poke.happiness/51));
   const projectedTotal=(pw?.totalWatts||0)+stroll.watts;
+  const [stepInput,setStepInput]=React.useState("");
+  const presets=[100,500,1000,2000,5000];
   return (
     <div style={{animation:"slideUp .25s"}}>
       <div style={{textAlign:"center",padding:"8px 0 10px"}}>
@@ -1029,8 +1039,28 @@ function HomeScreen({stroll,pw,onMenu,onBalloon}){
           <div style={{fontSize:"9px",color:C.gray,marginTop:"2px"}}>Toque para coletar</div>
         </div>
       )}
+      {/* ADICIONAR PASSOS */}
+      <div style={{background:"#161b22",border:`1px solid ${C.bor}`,borderRadius:"8px",padding:"10px",marginBottom:"10px"}}>
+        <div style={{fontSize:"9px",color:C.gray,letterSpacing:"2px",marginBottom:"8px"}}>ADICIONAR PASSOS</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"4px",marginBottom:"8px"}}>
+          {presets.map(n=>(
+            <button key={n} className="btn" onClick={()=>onAddSteps(n)}
+              style={{padding:"6px 2px",borderRadius:"6px",background:"#21262d",border:`1px solid ${C.bor}`,color:C.blue,fontSize:"10px",fontWeight:"bold"}}>
+              +{n>=1000?`${n/1000}k`:n}
+            </button>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:"6px"}}>
+          <input value={stepInput} onChange={e=>setStepInput(e.target.value)} type="number" placeholder="Quantidade personalizada"
+            style={{flex:1,padding:"6px 8px",background:"#21262d",border:`1px solid ${C.bor}`,borderRadius:"5px",color:C.white,fontFamily:"'Courier New',monospace",fontSize:"12px",outline:"none"}}/>
+          <button className="btn" onClick={()=>{const n=parseInt(stepInput);if(n>0){onAddSteps(n);setStepInput("");}}}
+            style={{padding:"6px 12px",borderRadius:"6px",background:C.gdim,border:"none",color:"#fff",fontSize:"12px",fontWeight:"bold"}}>
+            +
+          </button>
+        </div>
+      </div>
       <div style={{display:"flex",gap:"6px",marginBottom:"12px"}}>
-        <ISlot label="Pokémon" count={stroll.capturedPokemon.length} max={3} color={C.purple}/>
+        <ISlot label="Pokemon" count={stroll.capturedPokemon.length} max={3} color={C.purple}/>
         <ISlot label="Itens"   count={stroll.foundItems.length}      max={3} color={C.green}/>
         <ISlot label="W total" value={`${projectedTotal}W`}               color={C.yellow}/>
       </div>
@@ -1039,15 +1069,27 @@ function HomeScreen({stroll,pw,onMenu,onBalloon}){
   );
 }
 
-function MenuScreen({stroll,onRadar,onDowsing,onStats,onBack,onEnd}){
+function MenuScreen({stroll,onRadar,onDowsing,onStats,onBack,onEnd,onAddSteps}){
   const fp=stroll.capturedPokemon.length>=3, fi=stroll.foundItems.length>=3;
+  const presets=[100,500,1000,5000];
   return (
-    <div style={{animation:"slideUp .2s"}}>
+    <div style={{animation:"slideUp .2s",overflowY:"auto",maxHeight:"280px"}}>
       <TBar title="MENU" onBack={onBack}/>
       <div style={{display:"flex",flexDirection:"column",gap:"7px",marginTop:"6px"}}>
         <MBtn icon="🎯" label="Poké Radar"    color={C.red}   sub={fp?"Inventário cheio (3/3)":`10W · você tem ${stroll.watts}W`} disabled={stroll.watts<10||fp} onClick={onRadar}/>
         <MBtn icon="🔍" label="Dowsing MCHN"  color={C.blue}  sub={fi?"Inventário cheio (3/3)":`3W · você tem ${stroll.watts}W`}  disabled={stroll.watts<3||fi}  onClick={onDowsing}/>
         <MBtn icon="📊" label="Estatísticas"  color={C.gray}  sub="Histórico e rotas" onClick={onStats}/>
+        <div style={{background:"#161b22",border:`1px solid ${C.bor}`,borderRadius:"8px",padding:"8px"}}>
+          <div style={{fontSize:"9px",color:C.gray,letterSpacing:"2px",marginBottom:"6px"}}>ADICIONAR PASSOS</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"4px"}}>
+            {presets.map(n=>(
+              <button key={n} className="btn" onClick={()=>onAddSteps(n)}
+                style={{padding:"7px 2px",borderRadius:"6px",background:"#21262d",border:`1px solid ${C.bor}`,color:C.blue,fontSize:"10px",fontWeight:"bold"}}>
+                +{n>=1000?`${n/1000}k`:n}
+              </button>
+            ))}
+          </div>
+        </div>
         <div style={{height:"1px",background:C.bor,margin:"2px 0"}}/>
         <MBtn icon="🏠" label="Retornar ao DS" color={C.green} sub={`Encerrar · retornar ${stroll.watts}W ao jogo`} onClick={onEnd}/>
       </div>
