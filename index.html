@@ -28,7 +28,7 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
-    html, body { background:#0d1117; min-height:100vh; font-family:'Courier New',monospace; }
+    html, body { background:#1a1a0a; min-height:100vh; font-family:'Courier New',monospace; }
     body { overflow-x:hidden; }
     /* Scrollbar */
     ::-webkit-scrollbar { width:4px; }
@@ -639,17 +639,122 @@ const INIT={
   currentPokemon:null,
   trainer:{ name:"", tid:0, sid:0, game:"SoulSilver", lang:"Português" },
 };
-const BLANK={name:"",level:"",exp:"",happiness:"",type1:"",type2:"",route:"refreshing_field",steps:"",hour:"",minute:"",second:""};
+const BLANK={name:"",level:"",exp:"",happiness:"",type1:"",type2:"",route:"refreshing_field"};
+
+// ═══════════════════════════════════════════════════════════════
+// EMOJI FALLBACK (usado enquanto sprite carrega ou se falhar)
+// ═══════════════════════════════════════════════════════════════
+const EMOJI={
+  Croconaw:"🐊",Pidgey:"🐦",Sentret:"🐿️",Doduo:"🦤","Nidoran♀":"💜","Nidoran♂":"💙",
+  Kangaskhan:"🦘",Wobbuffet:"😶",Bellsprout:"🌱",Venonat:"🪲",Paras:"🍄",
+  Oddish:"🌿",Spearow:"🦅",Magby:"🔥",Onix:"🪨",Machop:"💪",Ponyta:"🐴",
+  Hoothoot:"🦉",Geodude:"🪨",Psyduck:"🐥",Staryu:"⭐",Slowpoke:"🌸",Poliwag:"💧",
+  Sunkern:"🌻",Wooper:"💧",Elekid:"⚡",Magnemite:"🔩",Murkrow:"🐦",Rattata:"🐭",
+  Duskull:"💀",Misdreavus:"👻",Gastly:"👻",Zubat:"🦇",Dratini:"🐲",Gyarados:"🐉",
+  Goldeen:"🐟",Magikarp:"🐟",Tentacool:"🪼",Munchlax:"🐻",Lickitung:"👅",
+  Chansey:"🩷",Ekans:"🐍",Meowth:"🐱",Roselia:"🌹",Electrike:"⚡",Shroomish:"🍄",
+  Zigzagoon:"🦡",Taillow:"🐦",Wurmple:"🐛",Corsola:"🪸",Wingull:"🐦",Corphish:"🦀",
+  Wailmer:"🐳",Torkoal:"🐢",Slugma:"🌋",Numel:"🌋",Breloom:"🍄",Tropius:"🦕",
+  Seedot:"🌰",Absol:"🌑",Shuppet:"👻",Sableye:"💎",Pachirisu:"⚡",Buizel:"🦦",
+  Bidoof:"🦫",Starly:"🐦",Sneasel:"❄️",Smoochum:"💋",Swinub:"🐗",Snorunt:"❄️",
+  Scyther:"🦗",Heracross:"🪲",Caterpie:"🐛",Weedle:"🐛",Metapod:"🫘",Kakuna:"🫘",
+  Relicanth:"🐟",Lapras:"🐬",Golduck:"🦆",Slowbro:"🌸",Marill:"💙",Lanturn:"💡",
+  Octillery:"🐙",Krabby:"🦀",Shellder:"🐚",Blissey:"🩷",Togekiss:"🕊️",Togepi:"🥚",
+  Clefairy:"⭐",Jigglypuff:"🎤",Jynx:"💋",Dunsparce:"🐍",
+  Pikachu:"⚡",Pichu:"⚡",Spinda:"🐼",Smeargle:"🎨",Tyrogue:"🥊",Mankey:"🐒",
+  Meditite:"🧘",Miltank:"🐄",Porygon:"💾",Finneon:"🐟",Lumineon:"🐟",Bronzor:"🪙",
+  Horsea:"🐴",Beldum:"🤖",Eevee:"🦊",Skitty:"🐱",Plusle:"⚡",Minun:"⚡",
+  Snubbull:"🐶",Jirachi:"⭐",Starmie:"⭐",Cleffa:"⭐",
+};
+
+// ═══════════════════════════════════════════════════════════════
+// SISTEMA DE SPRITES — PokeAPI/sprites (HGSS Gen IV, 80×80px)
+// ═══════════════════════════════════════════════════════════════
+
+// Cache em memória: nome → id numérico
+const _spriteIdCache = {};
+
+// URL base dos sprites HGSS
+const SPRITE_BASE = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-iv/heartgold-soulsilver/";
+
+// Busca o ID do Pokémon na PokeAPI pelo nome e cacheia no localStorage
+async function fetchPokemonId(name){
+  if(!name) return null;
+  const key = name.toLowerCase().trim()
+    .replace(/♀/g,"f").replace(/♂/g,"m")
+    .replace(/\./g,"").replace(/[^a-z0-9\-]/g,"-")
+    .replace(/-+/g,"-").replace(/^-|-$/g,"");
+
+  // 1. memória
+  if(_spriteIdCache[key]) return _spriteIdCache[key];
+
+  // 2. localStorage
+  const lsKey = "pw_pid_"+key;
+  const cached = localStorage.getItem(lsKey);
+  if(cached){ _spriteIdCache[key]=cached; return cached; }
+
+  // 3. PokeAPI
+  try{
+    const res = await fetch("https://pokeapi.co/api/v2/pokemon/"+key);
+    if(!res.ok) return null;
+    const data = await res.json();
+    const id = String(data.id);
+    _spriteIdCache[key] = id;
+    localStorage.setItem(lsKey, id);
+    return id;
+  }catch(e){ return null; }
+}
+
+// Componente de sprite com fallback para emoji
+function PkmnSprite({name, size=80, shiny=false, style={}}){
+  const [src, setSrc] = React.useState(null);
+  const [failed, setFailed] = React.useState(false);
+  const emoji = EMOJI[name] || "🎮";
+
+  React.useEffect(()=>{
+    if(!name){ setFailed(true); return; }
+    let cancelled = false;
+    setSrc(null); setFailed(false);
+    fetchPokemonId(name).then(id=>{
+      if(cancelled || !id) { if(!cancelled) setFailed(true); return; }
+      const folder = shiny ? SPRITE_BASE+"shiny/" : SPRITE_BASE;
+      setSrc(folder + id + ".png");
+    });
+    return ()=>{ cancelled=true; };
+  }, [name, shiny]);
+
+  if(failed || (!src && !failed)){
+    // Enquanto carrega ou se falhou: mostra emoji
+    return (
+      <div style={{width:size,height:size,display:"flex",alignItems:"center",
+        justifyContent:"center",fontSize:size*0.6,...style}}>
+        {failed ? emoji : "⏳"}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={name}
+      width={size} height={size}
+      style={{imageRendering:"pixelated",objectFit:"contain",...style}}
+      onError={()=>setFailed(true)}
+    />
+  );
+}
 
 // ═══════════════════════════════════════════════════════════════
 // CORES
 // ═══════════════════════════════════════════════════════════════
 const C={
-  bg:"#0d1117",sur:"#161b22",bor:"#30363d",
-  green:"#3fb950",gdim:"#238636",
-  yellow:"#d29922",blue:"#58a6ff",red:"#f85149",
-  purple:"#bc8cff",gray:"#8b949e",white:"#e6edf3",
-  amber:"#ffa657",pink:"#f9a8d4",teal:"#39d353",
+  bg:"#e8e8e8",sur:"#d0d0d0",bor:"#888888",
+  pixel:"#1a1a1a",dim:"#555555",
+  green:"#1a1a1a",gdim:"#333333",
+  yellow:"#1a1a1a",blue:"#1a1a1a",red:"#1a1a1a",
+  purple:"#1a1a1a",gray:"#555555",white:"#1a1a1a",
+  amber:"#1a1a1a",pink:"#333333",teal:"#333333",
+  body:"#c8b86e",bodyDk:"#a89548",bodyLt:"#e8d898",btnGray:"#b0a060",
 };
 
 
@@ -696,6 +801,8 @@ function Pokewalker(){
   const [result,setResult] = useState(null);
   const [setup,setSetup] = useState(BLANK);
   const [confirmReset,setConfirmReset] = useState(false);
+  const [itemSwap,setItemSwap] = useState(null);   // {newItem, resolve}
+  const [wanderer,setWanderer] = useState(null);   // NPC encounter state
   const lcgRef  = useRef(null);
   const irngRef = useRef(null);
 
@@ -753,18 +860,101 @@ function Pokewalker(){
     const newSteps = (stroll.steps||0) + n;
     const newWatts = Math.floor(newSteps/20);
     const addedWatts = newWatts - Math.floor((stroll.steps||0)/20);
-    // Re-rola o balão se ainda não foi coletado
     const seed = parseInt(stroll.seed,16);
     const irngBalloon = new IRNG(seed^0xAA55AA55);
     const balloon = stroll.balloonCollected ? null : resolveBalloon(stroll.pokemon.happiness, irngBalloon);
+    // Check if wanderer should appear: once per stroll, after 1000+ steps, not yet appeared
+    const shouldSpawnWanderer = !stroll.wandererSeen
+      && newSteps >= 1000 && (stroll.steps||0) < 1000;
     setStroll(s=>({...s,
       steps: newSteps,
       watts: s.watts + addedWatts,
       wattsFromSteps: newWatts,
       balloon: s.balloonCollected ? s.balloon : balloon,
     }));
-    if(addedWatts>0) toast(`+${n} passos · +${addedWatts}W gerados!`);
-    else toast(`+${n} passos adicionados!`);
+    if(shouldSpawnWanderer) spawnWanderer(newSteps);
+    if(addedWatts>0) toast(`+${n} passos · +${addedWatts}W!`);
+    else toast(`+${n} passos!`);
+  };
+
+  // ── NPC WANDERER ───────────────────────────────────────
+  const NPC_NAMES=["Ash","Misty","Brock","May","Dawn","Lucas","Lyra","Ethan","Rosa","Hilda","Hilbert","Calem","Serena","Brendan","Wally","Barry","Riley","Cheryl","Mira","Buck"];
+  const NPC_TITLES=["Trainer","Youngster","Lass","Bug Catcher","Hiker","Picnicker","Ace Trainer","Cool Trainer","Pokéfan","Ranger"];
+
+  const spawnWanderer=(steps)=>{
+    const rng = new IRNG(Date.now() & 0xFFFFFFFF);
+    const name = NPC_NAMES[rng.rand(NPC_NAMES.length)];
+    const title = NPC_TITLES[rng.rand(NPC_TITLES.length)];
+    const tid = rng.rand(65536);
+    // NPC pokemon: random from current route pool group A or B
+    const routePkmn = stroll.route.pokemon;
+    const npcPkmn = routePkmn[rng.rand(routePkmn.length)];
+    // Item quality based on steps: >3000=rare, >1500=medium, else common
+    const quality = steps >= 3000 ? "rare" : steps >= 1500 ? "medium" : "common";
+    // Pick NPC gift item based on quality
+    const items = stroll.route.items;
+    let giftItem;
+    if(quality==="rare") giftItem = items[rng.rand(Math.min(3,items.length))];
+    else if(quality==="medium") giftItem = items[3 + rng.rand(Math.min(3,items.length-3))];
+    else giftItem = items[items.length - 1 - rng.rand(3)];
+    setWanderer({
+      name, title, tid: String(tid).padStart(5,"0"),
+      pokemon: npcPkmn,
+      giftItem,
+      quality,
+      phase: "appear",   // appear → choice → battle/trade/flee → result
+      battleHP: [4,4],   // [player, npc]
+      log: [],
+      steps,
+    });
+    setScreen("wanderer");
+  };
+
+  const wandererBattle=(action)=>{
+    if(!wanderer||wanderer.phase!=="battle") return;
+    const rng = new IRNG((Date.now()+wanderer.steps)&0xFFFFFFFF);
+    let [php,nhp] = wanderer.battleHP;
+    const newLog = [];
+    const npcIntent = rng.rand(3)<2 ? "attack" : "defend";
+    if(action==="attack"){
+      const crit = rng.rand(10)===0;
+      const dmg = crit?2:1;
+      nhp = Math.max(0, nhp-dmg);
+      newLog.push(crit?`Crítico! ${wanderer.pokemon.name} -${dmg}HP`:`Atacou! ${wanderer.pokemon.name} -1HP`);
+      if(npcIntent==="attack"){ php=Math.max(0,php-1); newLog.push(`${wanderer.name} contra-atacou! -1HP`); }
+    } else if(action==="evade"){
+      if(npcIntent==="attack"){ nhp=Math.max(0,nhp-1); newLog.push(`Esquivou e contra! ${wanderer.pokemon.name} -1HP`); }
+      else newLog.push("Preparou defesa...");
+    }
+    const over = nhp<=0 || php<=0;
+    const won = nhp<=0;
+    setWanderer(w=>({...w, battleHP:[php,nhp], log:[...w.log,...newLog],
+      phase: over?(won?"battleWon":"battleLost"):"battle"}));
+    if(over&&won){
+      // Victory: boost rare encounter for rest of stroll
+      setStroll(s=>({...s, rareBoost:true, wandererSeen:true}));
+      toast("Vitória! Encontros raros aumentados!");
+    } else if(over){
+      setStroll(s=>({...s, wandererSeen:true}));
+    }
+  };
+
+  const wandererTrade=(accept)=>{
+    if(accept){
+      if(stroll.foundItems.length>=3){
+        setItemSwap({newItem:wanderer.giftItem, source:"wanderer"});
+        setWanderer(w=>({...w,phase:"tradeAccepted"}));
+        setStroll(s=>({...s,wandererSeen:true}));
+        setScreen("itemswap");
+      } else {
+        setStroll(s=>({...s,foundItems:[...s.foundItems,wanderer.giftItem],wandererSeen:true}));
+        setWanderer(w=>({...w,phase:"tradeAccepted"}));
+        toast(`Recebeu: ${wanderer.giftItem.name||wanderer.giftItem}!`);
+      }
+    } else {
+      setStroll(s=>({...s,wandererSeen:true}));
+      setWanderer(w=>({...w,phase:"fled"}));
+    }
   };
 
   const collectBalloon=()=>{
@@ -778,7 +968,15 @@ function Pokewalker(){
   const startRadar=()=>{
     if(stroll.capturedPokemon.length>=3){ toast("Inventário cheio! Máx. 3 Pokémon."); return; }
     if(!spendWatts(10)) return;
-    const wild=resolveEncounter(stroll.pool,stroll.steps,stroll.typeAdv,lcgRef.current);
+    // rareBoost: force a fresh pool roll that favors group A
+    let wild;
+    if(stroll.rareBoost){
+      const boostedPool={...stroll.pool};
+      // Override: always use group A pokemon when rare boost is active
+      wild=boostedPool.A;
+    } else {
+      wild=resolveEncounter(stroll.pool,stroll.steps,stroll.typeAdv,lcgRef.current);
+    }
     setCombat({wild,playerHP:4,wildHP:4,log:[`Um ${wild.name} selvagem apareceu!`],over:false,result:null});
     setScreen("radar");
   };
@@ -824,7 +1022,6 @@ function Pokewalker(){
 
   // ── DOWSING ────────────────────────────────────────────
   const startDowsing=()=>{
-    if(stroll.foundItems.length>=3){ toast("Inventário cheio! Máx. 3 itens."); return; }
     if(!spendWatts(3)) return;
     const item=resolveItem(stroll.route,stroll.steps,irngRef.current);
     const pos=irngRef.current.rand(6);
@@ -835,8 +1032,15 @@ function Pokewalker(){
   const chooseBush=(idx)=>{
     if(dowsing.over) return;
     if(idx===dowsing.pos){
-      setDowsing(d=>({...d,chosen:idx,over:true,result:"found"}));
-      setStroll(s=>({...s,foundItems:[...s.foundItems,dowsing.item]}));
+      // Found item — check if bag full
+      if(stroll.foundItems.length>=3){
+        setItemSwap({newItem:dowsing.item, source:"dowsing"});
+        setDowsing(d=>({...d,chosen:idx,over:true,result:"found"}));
+        setScreen("itemswap");
+      } else {
+        setDowsing(d=>({...d,chosen:idx,over:true,result:"found"}));
+        setStroll(s=>({...s,foundItems:[...s.foundItems,dowsing.item]}));
+      }
     } else if(dowsing.attempts===0){
       setDowsing(d=>({...d,chosen:idx,hint:Math.abs(idx-dowsing.pos)===1?"Perto! 🔥":"Longe! ❄️",attempts:1}));
     } else {
@@ -880,55 +1084,213 @@ function Pokewalker(){
     };
     save(newPw);
     setResult({sess,newTotal,newUnlocked,prevTotal:pw?.totalWatts||0,newNat});
-    setStroll(null); setCombat(null); setDowsing(null);
+    setStroll(null); setCombat(null); setDowsing(null); setWanderer(null);
     setScreen("result");
   };
 
-  if(!pw) return <div style={{background:C.bg,height:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{color:C.green,fontFamily:"monospace",letterSpacing:"4px"}}>POKÉWALKER...</div></div>;
+  if(!pw) return (
+    <div style={{background:"#111827",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:"48px",marginBottom:"16px",animation:"pulse 1s infinite"}}>👣</div>
+        <div style={{color:"#10b981",fontFamily:"'Press Start 2P',monospace",fontSize:"12px",letterSpacing:"3px"}}>POKÉWALKER</div>
+      </div>
+    </div>
+  );
 
   // ── RENDER ─────────────────────────────────────────────
   return (
-    <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Courier New',monospace",color:C.white,display:"flex",flexDirection:"column",alignItems:"center",padding:"20px 0 60px"}}>
+    <div style={{background:"#111827",minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"system-ui,-apple-system,sans-serif"}}>
       <style>{`
-        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-        @keyframes slideUp{from{transform:translateY(8px);opacity:0}to{transform:translateY(0);opacity:1}}
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+        @keyframes slideUp{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
         @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-        .btn{transition:all .12s;cursor:pointer;border:none;font-family:'Courier New',monospace;outline:none;}
-        .btn:hover:not(:disabled){filter:brightness(1.2);}
-        .btn:active:not(:disabled){transform:scale(.96);}
-        .bush:hover:not(:disabled){background:#1e2a1e!important;border-color:#3fb950!important;}
-        ::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px;}
+        @keyframes glow{0%,100%{box-shadow:0 0 8px #10b981}50%{box-shadow:0 0 20px #10b981}}
+        *{box-sizing:border-box;}
+        body{margin:0;background:#111827;}
+        .btn{transition:all .12s;cursor:pointer;border:none;outline:none;-webkit-tap-highlight-color:transparent;}
+        .btn:active:not(:disabled){transform:scale(.96);opacity:.85;}
+        .btn:disabled{opacity:.4;cursor:not-allowed;}
+        .card{background:#1f2937;border:1px solid #374151;border-radius:12px;}
+        .px{font-family:"Press Start 2P",monospace;}
+        .row-btn{display:flex;align-items:center;gap:12px;padding:14px 16px;background:#1f2937;border:1px solid #374151;border-radius:12px;cursor:pointer;transition:all .12s;width:100%;text-align:left;}
+        .row-btn:active{background:#374151;transform:scale(.98);}
+        .row-btn:disabled{opacity:.4;cursor:not-allowed;}
+        .step-btn{padding:0;background:#374151;border:none;border-radius:8px;color:#f9fafb;font-size:13px;font-weight:700;cursor:pointer;transition:all .1s;display:flex;align-items:center;justify-content:center;min-height:44px;}
+        .step-btn:active{background:#4b5563;transform:scale(.95);}
+        .primary-btn{display:block;width:100%;padding:16px;background:#10b981;border:none;border-radius:12px;color:#fff;font-size:16px;font-weight:700;cursor:pointer;transition:all .12s;}
+        .primary-btn:active{background:#059669;transform:scale(.98);}
+        .primary-btn:disabled{background:#374151;color:#6b7280;cursor:not-allowed;transform:none;}
+        .danger-btn{display:block;width:100%;padding:14px;background:transparent;border:2px solid #ef4444;border-radius:12px;color:#ef4444;font-size:15px;font-weight:600;cursor:pointer;transition:all .12s;}
+        .danger-btn:active{background:#7f1d1d;transform:scale(.98);}
+        .action-btn{flex:1;padding:14px 8px;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;transition:all .12s;}
+        .action-btn:active{transform:scale(.96);}
+        input,select{background:#374151;border:1px solid #4b5563;border-radius:8px;color:#f9fafb;padding:12px 14px;font-size:16px;width:100%;outline:none;font-family:inherit;}
+        input:focus,select:focus{border-color:#10b981;}
+        ::-webkit-scrollbar{width:4px;}
+        ::-webkit-scrollbar-thumb{background:#374151;border-radius:4px;}
+        .pill{background:#111827;border-radius:8px;padding:10px 8px;text-align:center;}
       `}</style>
-      <div style={{width:"100%",maxWidth:"360px",background:"#1c2128",border:`2px solid ${C.bor}`,borderRadius:"22px",boxShadow:"0 16px 56px rgba(0,0,0,.75),inset 0 1px 0 rgba(255,255,255,.04)",overflow:"hidden"}}>
-        <div style={{padding:"12px 20px 4px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span style={{fontSize:"9px",color:"#3d444d",letterSpacing:"3px"}}>POKÉWALKER</span>
-          <div style={{width:"8px",height:"8px",borderRadius:"50%",background:stroll?C.green:"#3d444d",boxShadow:stroll?`0 0 8px ${C.green}`:"none",transition:"all .4s"}}/>
+
+      {/* ── HEADER BAR ── */}
+      <div style={{width:"100%",maxWidth:"480px",background:"#1f2937",borderBottom:"1px solid #374151",padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:50}}>
+        <div style={{display:"flex",alignItems:"center",gap:"12px"}}>
+          <span style={{fontSize:"24px"}}>👣</span>
+          <div>
+            <div className="px" style={{fontSize:"9px",color:"#10b981",letterSpacing:"2px"}}>POKÉWALKER</div>
+            {pw.trainer?.name&&<div style={{fontSize:"12px",color:"#9ca3af",marginTop:"3px"}}>{pw.trainer.name} · {pw.trainer.game}</div>}
+          </div>
         </div>
-        <div style={{background:"#0b0f14",margin:"0 14px",borderRadius:"10px",minHeight:"308px",border:"1px solid #21262d",padding:"14px",position:"relative",overflow:"hidden"}}>
-          {msg&&<div onClick={()=>setMsg("")} style={{position:"absolute",top:"8px",left:"8px",right:"8px",background:"#1c2128",border:`1px solid ${C.yellow}`,borderRadius:"6px",padding:"8px 12px",fontSize:"11px",color:C.yellow,zIndex:20,cursor:"pointer",animation:"fadeIn .2s"}}>{msg}</div>}
-          {screen==="boot"    && <BootScreen/>}
-          {screen==="setup"   && <SetupScreen setup={setup} setSetup={setSetup} pw={pw} availableRoutes={availableRoutes} onStart={startStroll} onStats={()=>setScreen("stats")}/>}
-          {screen==="home"    && stroll && <HomeScreen stroll={stroll} pw={pw} onMenu={()=>setScreen("menu")} onBalloon={collectBalloon} onAddSteps={addSteps}/>}
-          {screen==="menu"    && stroll && <MenuScreen stroll={stroll} onRadar={startRadar} onDowsing={startDowsing} onStats={()=>setScreen("stats")} onBack={()=>setScreen("home")} onEnd={endStroll} onAddSteps={addSteps}/>}
-          {screen==="radar"   && combat  && <RadarScreen combat={combat} onAction={battleAction} onBack={()=>{setScreen("home");setCombat(null);}}/>}
-          {screen==="dowsing" && dowsing && <DowsingScreen dowsing={dowsing} onChoose={chooseBush} onBack={()=>{setScreen("home");setDowsing(null);}}/>}
-          {screen==="stats"   && <StatsScreen pw={pw} stroll={stroll} onBack={()=>setScreen(stroll?"menu":"setup")} onToggleNat={()=>{ const n={...pw,hasNationalDex:!pw.hasNationalDex}; save(n); }} confirmReset={confirmReset} onReset={()=>setConfirmReset(true)} onResetConfirm={()=>{lsClear();setPw(INIT);setStroll(null);setConfirmReset(false);setScreen("setup");}} onResetCancel={()=>setConfirmReset(false)} onSaveTrainer={(trainer)=>save({...pw,trainer})}/>}
-          {screen==="result"  && result  && <ResultScreen result={result} onNew={()=>{setSetup(BLANK);setScreen("setup");}}/>}
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:"15px",fontWeight:"700",color:"#f59e0b"}}>⚡ {stroll?stroll.watts:pw.totalWatts}W</div>
+          <div style={{fontSize:"12px",color:"#6b7280",marginTop:"2px"}}>👣 {(stroll?stroll.steps:(pw.lifetimeSteps||0)).toLocaleString()}</div>
         </div>
-        <div style={{padding:"10px 20px 18px",display:"flex",justifyContent:"space-between"}}>
-          <span style={{fontSize:"10px",color:C.gray}}>⚡ {stroll?`${stroll.watts}W disponíveis`:`${pw.totalWatts}W acumulados`}</span>
-          <span style={{fontSize:"10px",color:C.gray}}>{stroll?`${stroll.steps.toLocaleString()} passos`:`${(pw.lifetimeSteps||0).toLocaleString()} passos`}</span>
-        </div>
+      </div>
+
+      {/* ── SCREEN CONTENT ── */}
+      <div style={{width:"100%",maxWidth:"480px",flex:1,padding:"16px 20px",paddingBottom:"40px"}}>
+        {msg&&<div onClick={()=>setMsg("")} style={{background:"#065f46",border:"1px solid #10b981",borderRadius:"10px",padding:"13px 16px",fontSize:"14px",color:"#6ee7b7",marginBottom:"14px",cursor:"pointer",animation:"fadeIn .2s",lineHeight:"1.4"}}>{msg}</div>}
+        {screen==="boot"    && <BootScreen/>}
+        {screen==="setup"   && <SetupScreen setup={setup} setSetup={setSetup} pw={pw} availableRoutes={availableRoutes} onStart={startStroll} onStats={()=>setScreen("stats")}/>}
+        {screen==="home"    && stroll && <HomeScreen stroll={stroll} pw={pw} onMenu={()=>setScreen("menu")} onBalloon={collectBalloon} onAddSteps={addSteps} hasWanderer={!!(wanderer&&wanderer.phase==="appear")}/>}
+        {screen==="menu"    && stroll && <MenuScreen stroll={stroll} onRadar={startRadar} onDowsing={startDowsing} onStats={()=>setScreen("stats")} onBack={()=>setScreen("home")} onEnd={endStroll} onAddSteps={addSteps} onWanderer={wanderer&&wanderer.phase==="appear"?()=>setScreen("wanderer"):null} hasWanderer={wanderer&&wanderer.phase==="appear"}/>}
+        {screen==="radar"   && combat  && <RadarScreen combat={combat} onAction={battleAction} onBack={()=>{setScreen("home");setCombat(null);}}/>}
+        {screen==="dowsing" && dowsing && <DowsingScreen dowsing={dowsing} onChoose={chooseBush} onBack={()=>{setScreen("home");setDowsing(null);}}/>}
+        {screen==="wanderer"&& wanderer && <WandererScreen wanderer={wanderer} stroll={stroll} onClose={()=>{setStroll(s=>({...s,wandererSeen:true}));setWanderer(null);setScreen("home");}} onBattle={()=>setWanderer(w=>({...w,phase:"battle"}))} onTrade={wandererTrade} onBattleAction={wandererBattle} onBack={()=>{if(wanderer)setStroll(s=>({...s,wandererSeen:true}));setWanderer(null);setScreen("home");}}/>}
+        {screen==="itemswap"&& itemSwap && <ItemSwapScreen newItem={itemSwap.newItem} bag={stroll.foundItems} onSwap={(idx)=>{ const nb=[...stroll.foundItems]; nb[idx]=itemSwap.newItem; setStroll(s=>({...s,foundItems:nb})); setItemSwap(null); setScreen("home"); }} onDiscard={()=>{ setItemSwap(null); setScreen("home"); }}/>}
+        {screen==="stats"   && <StatsScreen pw={pw} stroll={stroll} onBack={()=>setScreen(stroll?"menu":"setup")} onToggleNat={()=>{ const n={...pw,hasNationalDex:!pw.hasNationalDex}; save(n); }} confirmReset={confirmReset} onReset={()=>setConfirmReset(true)} onResetConfirm={()=>{lsClear();setPw(INIT);setStroll(null);setConfirmReset(false);setScreen("setup");}} onResetCancel={()=>setConfirmReset(false)} onSaveTrainer={(trainer)=>save({...pw,trainer})}/>}
+        {screen==="result"  && result  && <ResultScreen result={result} onNew={()=>{setSetup(BLANK);setScreen("setup");}}/>}
       </div>
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════
+// MICRO-COMPONENTES — design system limpo e legível
+// ═══════════════════════════════════════════════════════════════
+
+// Título de seção
+const STitle=({title})=>(
+  <div style={{marginBottom:"20px"}}>
+    <h2 className="px" style={{fontSize:"10px",color:"#10b981",letterSpacing:"2px",margin:0}}>{title}</h2>
+    <div style={{height:"2px",background:"linear-gradient(90deg,#10b981,transparent)",marginTop:"8px",borderRadius:"1px"}}/>
+  </div>
+);
+
+// Barra de título com botão voltar
+const TBar=({title,onBack})=>(
+  <div style={{display:"flex",alignItems:"center",gap:"12px",marginBottom:"20px"}}>
+    {onBack&&<button className="btn" onClick={onBack} style={{width:"40px",height:"40px",background:"#374151",borderRadius:"10px",color:"#f9fafb",fontSize:"18px",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>‹</button>}
+    <h2 className="px" style={{fontSize:"9px",color:"#f9fafb",letterSpacing:"2px",margin:0}}>{title}</h2>
+  </div>
+);
+
+// Grupo de campos com label
+const Grp=({label,children})=>(
+  <div style={{marginBottom:"20px"}}>
+    <div style={{fontSize:"11px",fontWeight:"600",color:"#6b7280",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"10px"}}>{label}</div>
+    {children}
+  </div>
+);
+
+// Linha divisória com label
+const Dv=({label})=><div style={{fontSize:"11px",color:"#6b7280",padding:"16px 0 8px",letterSpacing:"1px",textTransform:"uppercase",borderTop:"1px solid #374151",marginTop:"8px"}}>{label}</div>;
+
+// Row de label + input
+const Rw=({label,children})=>(
+  <div style={{display:"flex",alignItems:"center",gap:"12px",marginBottom:"12px"}}>
+    <div style={{fontSize:"14px",color:"#9ca3af",minWidth:"80px",flexShrink:0}}>{label}</div>
+    <div style={{flex:1}}>{children}</div>
+  </div>
+);
+
+// Input field
+const Inp=({v,on,type="text",ph=""})=>(
+  <input type={type} value={v} placeholder={ph} onChange={e=>on(e.target.value)}
+    style={{width:"100%",padding:"12px 14px",background:"#374151",border:"1px solid #4b5563",borderRadius:"8px",color:"#f9fafb",fontSize:"16px",outline:"none",fontFamily:"inherit"}}/>
+);
+
+// Botão primário grande
+const Btn=({onClick,label,disabled,color})=>(
+  <button className="btn primary-btn" onClick={onClick} disabled={disabled}
+    style={{background:disabled?"#374151":color||"#10b981",color:disabled?"#6b7280":"#fff"}}>
+    {label}
+  </button>
+);
+
+// Pill de stat
+const Pill=({label,value,color,accent})=>(
+  <div className="pill" style={{background:accent?"rgba(16,185,129,.1)":"#111827",border:`1px solid ${accent?"#10b981":"#374151"}`}}>
+    <div style={{fontSize:"10px",color:"#6b7280",marginBottom:"4px",textTransform:"uppercase",letterSpacing:"1px"}}>{label}</div>
+    <div style={{fontSize:"15px",fontWeight:"700",color:color||"#f9fafb"}}>{value}</div>
+  </div>
+);
+
+// Inventory slot
+const ISlot=({label,count,max,value,color})=>(
+  <div className="pill" style={{flex:1,background:"#111827",border:"1px solid #374151"}}>
+    <div style={{fontSize:"10px",color:"#6b7280",marginBottom:"4px"}}>{label}</div>
+    <div style={{fontSize:"14px",fontWeight:"700",color:color||"#f9fafb"}}>{value!==undefined?value:`${count}/${max}`}</div>
+  </div>
+);
+
+// Stat row (label: value)
+const SR=({label,v,c})=>(
+  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom:"1px solid #374151"}}>
+    <span style={{fontSize:"14px",color:"#9ca3af"}}>{label}</span>
+    <span style={{fontSize:"14px",fontWeight:"600",color:c||"#f9fafb"}}>{v}</span>
+  </div>
+);
+
+// HP bar
+const HPB=({label,hp,max,color})=>(
+  <div>
+    <div style={{display:"flex",justifyContent:"space-between",fontSize:"13px",marginBottom:"6px"}}>
+      <span style={{color:"#9ca3af"}}>{label}</span>
+      <span style={{fontWeight:"700",color:color||"#10b981"}}>{hp}/{max}</span>
+    </div>
+    <div style={{background:"#374151",borderRadius:"4px",height:"8px",overflow:"hidden"}}>
+      <div style={{width:`${(hp/max)*100}%`,height:"100%",background:color||"#10b981",borderRadius:"4px",transition:"width .3s"}}/>
+    </div>
+  </div>
+);
+
+// Menu button row
+const MBtn=({icon,label,sub,disabled,onClick})=>(
+  <button className="btn row-btn" onClick={onClick} disabled={disabled}
+    style={{opacity:disabled?.4:1,cursor:disabled?"not-allowed":"pointer"}}>
+    <span style={{fontSize:"22px",minWidth:"30px"}}>{icon}</span>
+    <div style={{flex:1}}>
+      <div style={{fontSize:"15px",fontWeight:"600",color:disabled?"#6b7280":"#f9fafb"}}>{label}</div>
+      {sub&&<div style={{fontSize:"12px",color:"#6b7280",marginTop:"3px"}}>{sub}</div>}
+    </div>
+    {!disabled&&<span style={{color:"#6b7280",fontSize:"18px"}}>›</span>}
+  </button>
+);
+
+// Action button (3-column grid)
+const ABt=({icon,label,sub,onClick})=>(
+  <button className="btn" onClick={onClick}
+    style={{flex:1,padding:"14px 8px",background:"#1f2937",border:"1px solid #374151",borderRadius:"12px",textAlign:"center",cursor:"pointer"}}>
+    <div style={{fontSize:"22px",marginBottom:"4px"}}>{icon}</div>
+    <div style={{fontSize:"13px",fontWeight:"700",color:"#f9fafb"}}>{label}</div>
+    {sub&&<div style={{fontSize:"11px",color:"#6b7280",marginTop:"2px"}}>{sub}</div>}
+  </button>
+);
+
+// ═══════════════════════════════════════════════════════════════
 // TELAS
 // ═══════════════════════════════════════════════════════════════
+
 function BootScreen(){
-  return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"280px"}}><div style={{textAlign:"center"}}><div style={{fontSize:"36px",marginBottom:"12px"}}>👣</div><div style={{color:"#3fb950",letterSpacing:"4px",fontSize:"12px",animation:"pulse 1s infinite"}}>POKÉWALKER</div></div></div>;
+  return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"60vh"}}>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:"64px",marginBottom:"20px",animation:"pulse 1s infinite"}}>👣</div>
+        <div className="px" style={{fontSize:"12px",color:"#10b981",letterSpacing:"4px",animation:"pulse 1s infinite"}}>POKÉWALKER</div>
+      </div>
+    </div>
+  );
 }
 
 function SetupScreen({setup,setSetup,pw,availableRoutes,onStart,onStats}){
@@ -939,170 +1301,286 @@ function SetupScreen({setup,setSetup,pw,availableRoutes,onStart,onStats}){
   const locked=ROUTES.filter(r=>!r.event&&!avail.find(a=>a.id===r.id));
   const events=ROUTES.filter(r=>r.event);
   const canStart=setup.name&&setup.level;
+  const selRoute=ROUTES.find(r=>r.id===setup.route);
+  const pkmTypes=[setup.type1,setup.type2].filter(Boolean).map(t=>t.trim());
+  const hasAdv=pkmTypes.some(t=>selRoute?.types?.includes(t));
 
   return (
-    <div style={{animation:"slideUp .3s",overflowY:"auto",maxHeight:"280px"}}>
-      <STitle title="ENVIAR POKÉMON" color={C.blue}/>
-      <Grp label="POKÉMON">
-        <Rw label="Nome">      <Inp v={setup.name}      on={v=>f("name",v)}      ph="Nome do Pokémon"/></Rw>
-        <Rw label="Nível">     <Inp v={setup.level}     on={v=>f("level",v)}     ph="Nível" type="number"/></Rw>
-        <Rw label="EXP">       <Inp v={setup.exp}       on={v=>f("exp",v)}       ph="EXP atual" type="number"/></Rw>
+    <div style={{animation:"slideUp .3s"}}>
+      <STitle title="ENVIAR POKEMON"/>
+
+      {/* Pokémon info */}
+      <Grp label="Pokémon">
+        <Rw label="Nome"><Inp v={setup.name} on={v=>f("name",v)} ph="Ex: Croconaw"/></Rw>
+        <Rw label="Nível"><Inp v={setup.level} on={v=>f("level",v)} ph="1–100" type="number"/></Rw>
+        <Rw label="EXP"><Inp v={setup.exp} on={v=>f("exp",v)} ph="EXP atual" type="number"/></Rw>
         <Rw label="Felicidade"><Inp v={setup.happiness} on={v=>f("happiness",v)} ph="0–255" type="number"/></Rw>
       </Grp>
 
-      <Grp label={`ROTAS DESBLOQUEADAS (${avail.length})`}>
+      {/* Tipos */}
+      <Grp label="Tipos do Pokémon">
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px",marginBottom:"10px"}}>
+          <Inp v={setup.type1} on={v=>f("type1",v)} ph="Tipo 1 (ex: Water)"/>
+          <Inp v={setup.type2} on={v=>f("type2",v)} ph="Tipo 2 (opcional)"/>
+        </div>
+        {selRoute&&(
+          <div style={{background:hasAdv?"rgba(16,185,129,.1)":"#1f2937",border:`1px solid ${hasAdv?"#10b981":"#374151"}`,borderRadius:"8px",padding:"10px 14px",fontSize:"13px"}}>
+            <div style={{color:"#9ca3af",marginBottom:"6px"}}>Tipos da rota: {selRoute.types.map(t=>(
+              <span key={t} style={{display:"inline-block",padding:"2px 8px",borderRadius:"4px",marginRight:"4px",background:pkmTypes.includes(t)?"#10b981":"#374151",color:pkmTypes.includes(t)?"#fff":"#9ca3af",fontSize:"12px",fontWeight:"600"}}>{t}{pkmTypes.includes(t)?" ✓":""}</span>
+            ))}</div>
+            <div style={{color:hasAdv?"#10b981":"#6b7280",fontWeight:"600",fontSize:"13px"}}>{hasAdv?"✓ Vantagem ativa — requisito de passos −25%":"✗ Sem vantagem de tipo nesta rota"}</div>
+          </div>
+        )}
+      </Grp>
+
+      {/* Rotas */}
+      <Grp label={`Rotas disponíveis (${avail.length})`}>
         {avail.map(r=>(
-          <button key={r.id} className="btn" onClick={()=>f("route",r.id)} style={{display:"block",width:"100%",padding:"8px 10px",borderRadius:"6px",fontSize:"11px",textAlign:"left",marginBottom:"4px",background:setup.route===r.id?"#1a2e1a":"#161b22",color:setup.route===r.id?C.green:C.gray,border:`1px solid ${setup.route===r.id?C.green:C.bor}`}}>
-            {setup.route===r.id?"▶ ":"  "}{r.name}
-            <span style={{float:"right",fontSize:"10px",opacity:.5}}>{r.types.join(" · ")}</span>
+          <button key={r.id} className="btn" onClick={()=>f("route",r.id)}
+            style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"14px 16px",background:setup.route===r.id?"rgba(16,185,129,.15)":"#1f2937",border:`1px solid ${setup.route===r.id?"#10b981":"#374151"}`,borderRadius:"10px",marginBottom:"8px",cursor:"pointer"}}>
+            <span style={{fontSize:"15px",fontWeight:"600",color:setup.route===r.id?"#10b981":"#f9fafb"}}>{setup.route===r.id?"▶ ":""}{r.name}</span>
+            <span style={{fontSize:"12px",color:"#6b7280"}}>{r.types.join(" · ")}</span>
           </button>
         ))}
-
         {events.length>0&&<>
-          <div style={{fontSize:"9px",color:C.teal,letterSpacing:"1px",margin:"8px 0 4px"}}>EVENTOS</div>
+          <div style={{fontSize:"11px",color:"#f59e0b",letterSpacing:"1px",textTransform:"uppercase",margin:"12px 0 8px"}}>✨ Rotas de Evento</div>
           {events.map(r=>(
-            <button key={r.id} className="btn" onClick={()=>f("route",r.id)} style={{display:"block",width:"100%",padding:"8px 10px",borderRadius:"6px",fontSize:"11px",textAlign:"left",marginBottom:"4px",background:setup.route===r.id?"#1a2e1a":"#161b22",color:setup.route===r.id?C.teal:C.gray,border:`1px solid ${setup.route===r.id?C.teal:C.bor}`}}>
-              ✨ {r.name}
+            <button key={r.id} className="btn" onClick={()=>f("route",r.id)}
+              style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"14px 16px",background:setup.route===r.id?"rgba(245,158,11,.15)":"#1f2937",border:`1px solid ${setup.route===r.id?"#f59e0b":"#374151"}`,borderRadius:"10px",marginBottom:"8px",cursor:"pointer"}}>
+              <span style={{fontSize:"15px",fontWeight:"600",color:setup.route===r.id?"#f59e0b":"#f9fafb"}}>✨ {r.name}</span>
             </button>
           ))}
         </>}
-
         {locked.length>0&&<>
-          <div style={{fontSize:"9px",color:C.gray,letterSpacing:"1px",margin:"8px 0 4px"}}>BLOQUEADAS</div>
+          <div style={{fontSize:"11px",color:"#6b7280",letterSpacing:"1px",textTransform:"uppercase",margin:"12px 0 8px"}}>🔒 Bloqueadas</div>
           {locked.map(r=>(
-            <div key={r.id} style={{padding:"7px 10px",borderRadius:"6px",fontSize:"11px",marginBottom:"3px",background:"#0d1117",color:"#3d444d",border:"1px solid #21262d"}}>
-              🔒 {r.name}
-              <span style={{float:"right",fontSize:"10px"}}>{r.nat?"Pokédex Nacional":r.watts>0?`${r.watts.toLocaleString()}W`:""}</span>
+            <div key={r.id} style={{display:"flex",justifyContent:"space-between",padding:"12px 16px",background:"#111827",border:"1px solid #374151",borderRadius:"10px",marginBottom:"6px",opacity:.5}}>
+              <span style={{fontSize:"14px",color:"#6b7280"}}>🔒 {r.name}</span>
+              <span style={{fontSize:"12px",color:"#6b7280"}}>{r.nat?"Pokédex Nacional":r.watts>0?`${r.watts.toLocaleString()}W`:""}</span>
             </div>
           ))}
         </>}
-
-        {/* Tipos do Pokémon + vantagem calculada */}
-        <div style={{marginTop:"8px"}}>
-          <div style={{fontSize:"9px",color:C.gray,letterSpacing:"1px",marginBottom:"4px"}}>TIPOS DO SEU POKÉMON</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px",marginBottom:"6px"}}>
-            <Inp v={setup.type1} on={v=>f("type1",v)} ph="Tipo 1 (ex: Water)"/>
-            <Inp v={setup.type2} on={v=>f("type2",v)} ph="Tipo 2 (opcional)"/>
-          </div>
-          {(()=>{
-            const selectedRoute=ROUTES.find(r=>r.id===setup.route);
-            const types=[setup.type1,setup.type2].filter(Boolean).map(t=>t.trim());
-            const hasAdv=types.some(t=>selectedRoute?.types?.includes(t));
-            const routeTypes=selectedRoute?.types||[];
-            return (
-              <div style={{padding:"7px 10px",borderRadius:"6px",fontSize:"11px",background:hasAdv?"#1a2e1a":"#161b22",border:`1px solid ${hasAdv?C.green:C.bor}`}}>
-                <div style={{color:C.gray,marginBottom:"3px"}}>Tipos favoráveis desta rota:</div>
-                <div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>
-                  {routeTypes.map(t=>{
-                    const match=types.includes(t);
-                    return <span key={t} style={{padding:"2px 8px",borderRadius:"4px",fontSize:"10px",background:match?"#238636":"#21262d",color:match?"#fff":C.gray,fontWeight:match?"bold":"normal"}}>{t}{match?" ✓":""}</span>;
-                  })}
-                </div>
-                {types.length>0&&<div style={{marginTop:"5px",fontSize:"10px",color:hasAdv?C.green:C.gray}}>{hasAdv?"✓ Vantagem ativa — req. de passos −25%":"✗ Sem vantagem de tipo nesta rota"}</div>}
-              </div>
-            );
-          })()}
-        </div>
       </Grp>
 
-      <Btn onClick={onStart} disabled={!canStart} color={C.gdim} label="▶ INICIAR PASSEIO"/>
-      <button className="btn" onClick={onStats} style={{display:"block",width:"100%",padding:"9px",borderRadius:"8px",marginTop:"6px",background:"transparent",border:`1px solid ${C.bor}`,color:C.gray,fontSize:"11px",letterSpacing:"1px"}}>
-        📊 ESTATÍSTICAS E HISTÓRICO
-      </button>
+      <div style={{display:"flex",flexDirection:"column",gap:"10px",marginTop:"8px"}}>
+        <Btn onClick={onStart} disabled={!canStart} label="▶ INICIAR PASSEIO"/>
+        <button className="btn" onClick={onStats} style={{width:"100%",padding:"14px",background:"transparent",border:"1px solid #374151",borderRadius:"12px",color:"#9ca3af",fontSize:"15px",cursor:"pointer"}}>📊 Estatísticas e Histórico</button>
+      </div>
     </div>
   );
 }
 
-function HomeScreen({stroll,pw,onMenu,onBalloon,onAddSteps}){
+function HomeScreen({stroll,pw,onMenu,onBalloon,onAddSteps,hasWanderer}){
   const poke=stroll.pokemon;
   const hearts=Math.min(5,Math.floor(poke.happiness/51));
   const projectedTotal=(pw?.totalWatts||0)+stroll.watts;
   const [stepInput,setStepInput]=React.useState("");
   const presets=[100,500,1000,2000,5000];
   return (
-    <div style={{animation:"slideUp .25s"}}>
-      <div style={{textAlign:"center",padding:"8px 0 10px"}}>
-        <div style={{fontSize:"56px",marginBottom:"4px",textAlign:"center"}}>{EMOJI[poke.name]||"🦎"}</div>
-        <div style={{fontSize:"18px",fontWeight:"bold",color:C.white}}>{poke.name}</div>
-        <div style={{fontSize:"11px",color:C.gray,marginTop:"2px"}}>Lv.{poke.level} · {stroll.route.name}</div>
-        <div style={{fontSize:"13px",color:C.pink,marginTop:"4px"}}>{"♥".repeat(hearts)}{"♡".repeat(Math.max(0,5-hearts))}</div>
+    <div style={{animation:"slideUp .2s"}}>
+      {/* Pokémon hero */}
+      <div style={{background:"#1f2937",border:"1px solid #374151",borderRadius:"16px",padding:"20px",textAlign:"center",marginBottom:"14px"}}>
+        <PkmnSprite name={poke.name} size={100} shiny={false} style={{margin:"0 auto 8px",display:"block"}}/>
+        <div style={{fontSize:"20px",fontWeight:"700",color:"#f9fafb",marginBottom:"4px"}}>{poke.name}</div>
+        <div style={{fontSize:"14px",color:"#6b7280",marginBottom:"8px"}}>Lv.{poke.level} · {stroll.route.name}</div>
+        <div style={{fontSize:"20px",letterSpacing:"3px",color:"#f472b6"}}>{"♥".repeat(hearts)}{"♡".repeat(Math.max(0,5-hearts))}</div>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px",marginBottom:"10px"}}>
-        <Pill label="Passos" value={stroll.steps.toLocaleString()} color={C.blue}/>
-        <Pill label="Watts"  value={`${stroll.watts}W`}           color={C.yellow}/>
-        <Pill label="EXP +"  value={`+${stroll.steps}`}           color={C.amber}/>
+
+      {/* Stats */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"8px",marginBottom:"14px"}}>
+        <Pill label="Passos" value={stroll.steps.toLocaleString()} color="#60a5fa"/>
+        <Pill label="Watts" value={`${stroll.watts}W`} color="#f59e0b" accent={stroll.watts>0}/>
+        <Pill label="EXP+" value={`+${stroll.steps}`} color="#a78bfa"/>
       </div>
+
+      {/* Rare boost */}
+      {stroll.rareBoost&&<div style={{background:"rgba(245,158,11,.1)",border:"1px solid #f59e0b",borderRadius:"10px",padding:"12px 16px",marginBottom:"12px",textAlign:"center",fontSize:"14px",fontWeight:"700",color:"#f59e0b"}}>⭐ Rare Boost Ativo!</div>}
+
+      {/* Balloon */}
       {stroll.balloon&&!stroll.balloonCollected&&(
-        <div onClick={onBalloon} style={{background:"#1a2e1a",border:`1px solid ${C.green}`,borderRadius:"8px",padding:"10px",marginBottom:"10px",cursor:"pointer",textAlign:"center",animation:"pulse 1.4s infinite"}}>
-          <div style={{fontSize:"20px"}}>💬</div>
-          <div style={{fontSize:"11px",color:C.green,marginTop:"2px"}}>{poke.name} encontrou {stroll.balloon.label}!</div>
-          <div style={{fontSize:"9px",color:C.gray,marginTop:"2px"}}>Toque para coletar</div>
+        <div onClick={onBalloon} style={{background:"rgba(16,185,129,.1)",border:"2px solid #10b981",borderRadius:"12px",padding:"16px",marginBottom:"14px",cursor:"pointer",textAlign:"center",animation:"glow 2s infinite"}}>
+          <div style={{fontSize:"28px",marginBottom:"6px"}}>💬</div>
+          <div style={{fontSize:"15px",fontWeight:"700",color:"#10b981",marginBottom:"4px"}}>{poke.name} encontrou {stroll.balloon.label}!</div>
+          <div style={{fontSize:"13px",color:"#6b7280"}}>Toque para coletar</div>
         </div>
       )}
-      {/* ADICIONAR PASSOS */}
-      <div style={{background:"#161b22",border:`1px solid ${C.bor}`,borderRadius:"8px",padding:"10px",marginBottom:"10px"}}>
-        <div style={{fontSize:"9px",color:C.gray,letterSpacing:"2px",marginBottom:"8px"}}>ADICIONAR PASSOS</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"4px",marginBottom:"8px"}}>
+
+      {/* Add steps */}
+      <div style={{background:"#1f2937",border:"1px solid #374151",borderRadius:"12px",padding:"16px",marginBottom:"14px"}}>
+        <div style={{fontSize:"13px",fontWeight:"600",color:"#6b7280",textTransform:"uppercase",letterSpacing:"1px",marginBottom:"12px"}}>+ Adicionar Passos</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px",marginBottom:"10px"}}>
           {presets.map(n=>(
-            <button key={n} className="btn" onClick={()=>onAddSteps(n)}
-              style={{padding:"6px 2px",borderRadius:"6px",background:"#21262d",border:`1px solid ${C.bor}`,color:C.blue,fontSize:"10px",fontWeight:"bold"}}>
+            <button key={n} className="btn step-btn" onClick={()=>onAddSteps(n)} style={{fontSize:"12px",fontWeight:"700",color:"#f9fafb",background:"#374151",border:"none",borderRadius:"8px",minHeight:"44px",cursor:"pointer"}}>
               +{n>=1000?`${n/1000}k`:n}
             </button>
           ))}
         </div>
-        <div style={{display:"flex",gap:"6px"}}>
-          <input value={stepInput} onChange={e=>setStepInput(e.target.value)} type="number" placeholder="Quantidade personalizada"
-            style={{flex:1,padding:"6px 8px",background:"#21262d",border:`1px solid ${C.bor}`,borderRadius:"5px",color:C.white,fontFamily:"'Courier New',monospace",fontSize:"12px",outline:"none"}}/>
+        <div style={{display:"flex",gap:"8px"}}>
+          <input value={stepInput} onChange={e=>setStepInput(e.target.value)} type="number" placeholder="Personalizado..."
+            style={{flex:1,padding:"12px 14px",background:"#374151",border:"1px solid #4b5563",borderRadius:"8px",color:"#f9fafb",fontSize:"16px",outline:"none"}}/>
           <button className="btn" onClick={()=>{const n=parseInt(stepInput);if(n>0){onAddSteps(n);setStepInput("");}}}
-            style={{padding:"6px 12px",borderRadius:"6px",background:C.gdim,border:"none",color:"#fff",fontSize:"12px",fontWeight:"bold"}}>
-            +
-          </button>
+            style={{padding:"12px 20px",background:"#10b981",border:"none",borderRadius:"8px",color:"#fff",fontSize:"16px",fontWeight:"700",cursor:"pointer",minWidth:"56px"}}>+</button>
         </div>
       </div>
-      <div style={{display:"flex",gap:"6px",marginBottom:"12px"}}>
-        <ISlot label="Pokemon" count={stroll.capturedPokemon.length} max={3} color={C.purple}/>
-        <ISlot label="Itens"   count={stroll.foundItems.length}      max={3} color={C.green}/>
-        <ISlot label="W total" value={`${projectedTotal}W`}               color={C.yellow}/>
+
+      {/* Inventory */}
+      <div style={{display:"flex",gap:"8px",marginBottom:"16px"}}>
+        <ISlot label="Pokémon" count={stroll.capturedPokemon.length} max={3} color="#a78bfa"/>
+        <ISlot label="Itens" count={stroll.foundItems.length} max={3} color="#34d399"/>
+        <ISlot label="W Total" value={`${projectedTotal}W`} color="#f59e0b"/>
       </div>
-      <Btn onClick={onMenu} label="▼ MENU" color="#21262d" bor={C.bor}/>
+
+      {hasWanderer&&(
+        <div style={{background:"rgba(245,158,11,.15)",border:"1px solid #f59e0b",borderRadius:"10px",padding:"12px 16px",marginBottom:"10px",textAlign:"center",animation:"pulse 1.5s infinite"}}>
+          <span style={{fontSize:"13px",fontWeight:"700",color:"#f59e0b"}}>👤 Wanderer na área! Vá ao Menu</span>
+        </div>
+      )}
+      <Btn onClick={onMenu} label={hasWanderer?"☰ Menu ← WANDERER!":"☰ Menu"} color={hasWanderer?"#b45309":undefined}/>
     </div>
   );
 }
 
-function MenuScreen({stroll,onRadar,onDowsing,onStats,onBack,onEnd,onAddSteps}){
-  const fp=stroll.capturedPokemon.length>=3, fi=stroll.foundItems.length>=3;
-  const presets=[100,500,1000,5000];
+function MenuScreen({stroll,onRadar,onDowsing,onStats,onBack,onEnd,onAddSteps,onWanderer,hasWanderer}){
+  const fp=stroll.capturedPokemon.length>=3;
+  const presets=[500,1000,2000,5000];
   return (
-    <div style={{animation:"slideUp .2s",overflowY:"auto",maxHeight:"280px"}}>
+    <div style={{animation:"slideUp .2s"}}>
       <TBar title="MENU" onBack={onBack}/>
-      <div style={{display:"flex",flexDirection:"column",gap:"7px",marginTop:"6px"}}>
-        <MBtn icon="🎯" label="Poké Radar"    color={C.red}   sub={fp?"Inventário cheio (3/3)":`10W · você tem ${stroll.watts}W`} disabled={stroll.watts<10||fp} onClick={onRadar}/>
-        <MBtn icon="🔍" label="Dowsing MCHN"  color={C.blue}  sub={fi?"Inventário cheio (3/3)":`3W · você tem ${stroll.watts}W`}  disabled={stroll.watts<3||fi}  onClick={onDowsing}/>
-        <MBtn icon="📊" label="Estatísticas"  color={C.gray}  sub="Histórico e rotas" onClick={onStats}/>
-        <div style={{background:"#161b22",border:`1px solid ${C.bor}`,borderRadius:"8px",padding:"8px"}}>
-          <div style={{fontSize:"9px",color:C.gray,letterSpacing:"2px",marginBottom:"6px"}}>ADICIONAR PASSOS</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"4px"}}>
+      <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+        {hasWanderer&&(
+          <button className="btn row-btn" onClick={onWanderer}
+            style={{background:"rgba(245,158,11,.15)",border:"2px solid #f59e0b",animation:"glow 2s infinite"}}>
+            <span style={{fontSize:"22px"}}>👤</span>
+            <div style={{flex:1}}>
+              <div style={{fontSize:"16px",fontWeight:"700",color:"#f59e0b"}}>Wanderer na área!</div>
+              <div style={{fontSize:"13px",color:"#9ca3af",marginTop:"3px"}}>Um treinador quer interagir</div>
+            </div>
+            <span style={{color:"#f59e0b",fontSize:"20px"}}>›</span>
+          </button>
+        )}
+        <MBtn icon="🎯" label="Poké Radar" sub={fp?"Inventário cheio (3/3)":`10W — você tem ${stroll.watts}W`} disabled={stroll.watts<10||fp} onClick={onRadar}/>
+        <MBtn icon="🔍" label="Dowsing MCHN" sub={`3W — você tem ${stroll.watts}W`} disabled={stroll.watts<3} onClick={onDowsing}/>
+        <MBtn icon="📊" label="Estatísticas" sub="Histórico e rotas" onClick={onStats}/>
+
+        {/* Quick steps */}
+        <div style={{background:"#1f2937",border:"1px solid #374151",borderRadius:"12px",padding:"14px"}}>
+          <div style={{fontSize:"12px",color:"#6b7280",textTransform:"uppercase",letterSpacing:"1px",marginBottom:"10px"}}>+ Passos rápidos</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"6px"}}>
             {presets.map(n=>(
               <button key={n} className="btn" onClick={()=>onAddSteps(n)}
-                style={{padding:"7px 2px",borderRadius:"6px",background:"#21262d",border:`1px solid ${C.bor}`,color:C.blue,fontSize:"10px",fontWeight:"bold"}}>
+                style={{padding:"12px 4px",background:"#374151",border:"none",borderRadius:"8px",color:"#f9fafb",fontSize:"13px",fontWeight:"700",cursor:"pointer",minHeight:"44px"}}>
                 +{n>=1000?`${n/1000}k`:n}
               </button>
             ))}
           </div>
         </div>
-        <div style={{height:"1px",background:C.bor,margin:"2px 0"}}/>
-        <MBtn icon="🏠" label="Retornar ao DS" color={C.green} sub={`Encerrar · retornar ${stroll.watts}W ao jogo`} onClick={onEnd}/>
+
+        <div style={{borderTop:"1px solid #374151",paddingTop:"8px",marginTop:"4px"}}>
+          <MBtn icon="🏠" label="Retornar ao DS" sub={`Encerrar e retornar ${stroll.watts}W ao jogo`} onClick={onEnd}/>
+        </div>
       </div>
+
       {(stroll.capturedPokemon.length>0||stroll.foundItems.length>0)&&(
-        <div style={{marginTop:"10px",padding:"10px",background:"#161b22",borderRadius:"8px",border:`1px solid ${C.bor}`}}>
-          <div style={{fontSize:"9px",color:C.gray,letterSpacing:"1px",marginBottom:"6px"}}>INVENTÁRIO DO PASSEIO</div>
-          {stroll.capturedPokemon.map((p,i)=><div key={i} style={{fontSize:"11px",color:C.purple,marginBottom:"3px"}}>{p.shiny?"✨":EMOJI[p.name]||"🔵"} {p.name} {p.gender} Lv.{p.level}{p.shiny?" ⭐SHINY":""}</div>)}
-          {stroll.foundItems.map((it,i)=><div key={i} style={{fontSize:"11px",color:C.green,marginBottom:"3px"}}>🎒 {it.name}</div>)}
+        <div style={{marginTop:"16px",background:"#1f2937",border:"1px solid #374151",borderRadius:"12px",padding:"14px"}}>
+          <div style={{fontSize:"12px",color:"#6b7280",textTransform:"uppercase",letterSpacing:"1px",marginBottom:"10px"}}>Inventário do Passeio</div>
+          {stroll.capturedPokemon.map((p,i)=>(
+            <div key={i} style={{padding:"8px 0",borderBottom:"1px solid #374151",fontSize:"14px",color:p.shiny?"#f59e0b":"#a78bfa"}}>
+              <PkmnSprite name={p.name} size={24} shiny={p.shiny} style={{verticalAlign:"middle",marginRight:4}}/> {p.name} {p.gender} Lv.{p.level}{p.shiny?" — SHINY! ⭐":""}
+            </div>
+          ))}
+          {stroll.foundItems.map((it,i)=>(
+            <div key={i} style={{padding:"8px 0",borderBottom:"1px solid #374151",fontSize:"14px",color:"#34d399"}}>
+              🎒 {it.name||it}
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
 }
+
+function WandererScreen({wanderer,stroll,onClose,onBattle,onTrade,onBattleAction,onBack}){
+  const qColor={"rare":"#f59e0b","medium":"#60a5fa","common":"#9ca3af"}[wanderer.quality]||"#9ca3af";
+  const qLabel={"rare":"★ Item Raro","medium":"◆ Item Médio","common":"◇ Item Comum"}[wanderer.quality];
+  return (
+    <div style={{animation:"slideUp .2s"}}>
+      {(wanderer.phase==="appear")&&<>
+        <TBar title="WANDERER!" onBack={onClose}/>
+        <div style={{background:"#1f2937",border:"1px solid #374151",borderRadius:"16px",padding:"20px",textAlign:"center",marginBottom:"14px"}}>
+          <div style={{fontSize:"48px",marginBottom:"10px"}}>👤</div>
+          <div style={{fontSize:"20px",fontWeight:"700",color:"#f9fafb",marginBottom:"4px"}}>{wanderer.name}</div>
+          <div style={{fontSize:"14px",color:"#6b7280",marginBottom:"4px"}}>{wanderer.title} · ID {wanderer.tid}</div>
+          <div style={{fontSize:"14px",color:"#9ca3af",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><PkmnSprite name={wanderer.pokemon.name} size={28}/>{wanderer.pokemon.name} Lv.{wanderer.pokemon.level}</div>
+        </div>
+        <div style={{background:"#1f2937",border:"1px solid #374151",borderRadius:"12px",padding:"14px",marginBottom:"16px"}}>
+          <div style={{fontSize:"12px",color:"#6b7280",textTransform:"uppercase",letterSpacing:"1px",marginBottom:"8px"}}>Oferta de Item</div>
+          <div style={{fontSize:"16px",fontWeight:"700",color:"#f9fafb",marginBottom:"6px"}}>{wanderer.giftItem?.name||"Potion"}</div>
+          <div style={{fontSize:"13px",fontWeight:"600",color:qColor}}>{qLabel} · {stroll.steps>=3000?"Passeio longo! 🔥":stroll.steps>=1500?"Bom ritmo! 💪":"Início de passeio"}</div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"8px"}}>
+          <button className="btn" onClick={onBattle} style={{padding:"14px 8px",background:"#7f1d1d",border:"1px solid #ef4444",borderRadius:"12px",color:"#fca5a5",fontSize:"14px",fontWeight:"700",cursor:"pointer",minHeight:"52px"}}>⚔️ Batalhar</button>
+          <button className="btn" onClick={()=>onTrade(true)} style={{padding:"14px 8px",background:"#064e3b",border:"1px solid #10b981",borderRadius:"12px",color:"#6ee7b7",fontSize:"14px",fontWeight:"700",cursor:"pointer",minHeight:"52px"}}>🤝 Trocar</button>
+          <button className="btn" onClick={onClose} style={{padding:"14px 8px",background:"#1f2937",border:"1px solid #374151",borderRadius:"12px",color:"#9ca3af",fontSize:"14px",fontWeight:"700",cursor:"pointer",minHeight:"52px"}}>💨 Fugir</button>
+        </div>
+      </>}
+      {wanderer.phase==="battle"&&<>
+        <TBar title="BATALHA!"/>
+        <div style={{textAlign:"center",marginBottom:"16px"}}>
+          <PkmnSprite name={wanderer.pokemon.name} size={80} style={{margin:"0 auto 8px",display:"block"}}/>
+          <div style={{fontSize:"16px",fontWeight:"700",color:"#f9fafb"}}>{wanderer.name} usa {wanderer.pokemon.name}</div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px",marginBottom:"14px"}}>
+          <HPB label="Você" hp={wanderer.battleHP[0]} max={4} color="#10b981"/>
+          <HPB label={wanderer.name} hp={wanderer.battleHP[1]} max={4} color="#ef4444"/>
+        </div>
+        <div style={{background:"#111827",border:"1px solid #374151",borderRadius:"10px",padding:"12px",minHeight:"70px",maxHeight:"90px",overflowY:"auto",marginBottom:"14px"}}>
+          {wanderer.log.slice(-4).map((l,i)=><div key={i} style={{fontSize:"13px",color:"#d1d5db",marginBottom:"4px",lineHeight:"1.4"}}>▸ {l}</div>)}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+          <button className="btn action-btn" onClick={()=>onBattleAction("attack")} style={{background:"#7f1d1d",color:"#fca5a5",border:"none"}}>⚔️ Atacar</button>
+          <button className="btn action-btn" onClick={()=>onBattleAction("evade")} style={{background:"#1e3a5f",color:"#93c5fd",border:"none"}}>🛡️ Esquivar</button>
+        </div>
+      </>}
+      {(wanderer.phase==="battleWon"||wanderer.phase==="battleLost"||wanderer.phase==="tradeAccepted"||wanderer.phase==="fled")&&(
+        <div style={{textAlign:"center",padding:"40px 20px"}}>
+          <div style={{fontSize:"56px",marginBottom:"16px"}}>{wanderer.phase==="battleWon"?"🏆":wanderer.phase==="battleLost"?"💫":wanderer.phase==="tradeAccepted"?"🎁":"💨"}</div>
+          <div style={{fontSize:"20px",fontWeight:"700",color:"#f9fafb",marginBottom:"8px"}}>
+            {wanderer.phase==="battleWon"?"Vitória!"
+            :wanderer.phase==="battleLost"?"Derrota..."
+            :wanderer.phase==="tradeAccepted"?`Recebeu: ${wanderer.giftItem?.name}`
+            :`${wanderer.name} foi embora.`}
+          </div>
+          {wanderer.phase==="battleWon"&&<div style={{fontSize:"14px",color:"#10b981",marginBottom:"20px"}}>⭐ Rare Boost ativado pelo resto do passeio!</div>}
+          <Btn onClick={onClose} label="OK"/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ItemSwapScreen({newItem,bag,onSwap,onDiscard}){
+  return (
+    <div style={{animation:"slideUp .2s"}}>
+      <TBar title="BOLSA CHEIA!"/>
+      <div style={{background:"rgba(245,158,11,.1)",border:"2px solid #f59e0b",borderRadius:"12px",padding:"16px",marginBottom:"20px",textAlign:"center"}}>
+        <div style={{fontSize:"13px",color:"#f59e0b",textTransform:"uppercase",letterSpacing:"1px",marginBottom:"6px"}}>Novo Item Encontrado</div>
+        <div style={{fontSize:"20px",fontWeight:"700",color:"#f9fafb"}}>{newItem?.name||newItem}</div>
+      </div>
+      <div style={{fontSize:"14px",color:"#9ca3af",marginBottom:"14px",lineHeight:"1.5"}}>Sua bolsa está cheia. Escolha qual item descartar para guardar o novo:</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"8px",marginBottom:"16px"}}>
+        {bag.map((it,i)=>(
+          <button key={i} className="btn" onClick={()=>onSwap(i)}
+            style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"16px",background:"#1f2937",border:"1px solid #374151",borderRadius:"12px",cursor:"pointer"}}>
+            <span style={{fontSize:"16px",fontWeight:"600",color:"#f9fafb"}}>{it?.name||it}</span>
+            <span style={{fontSize:"13px",color:"#ef4444",fontWeight:"600"}}>Descartar ✕</span>
+          </button>
+        ))}
+      </div>
+      <button className="btn danger-btn" onClick={onDiscard}>Descartar o novo item</button>
+    </div>
+  );
+}
+
 
 function RadarScreen({combat,onAction,onBack}){
   const {wild,playerHP,wildHP,log,over,result}=combat;
@@ -1110,32 +1588,32 @@ function RadarScreen({combat,onAction,onBack}){
   return (
     <div style={{animation:"slideUp .2s"}}>
       <TBar title="POKÉ RADAR" onBack={over?onBack:null}/>
-      <div style={{textAlign:"center",margin:"6px 0 10px"}}>
-        <div style={{fontSize:"40px",textAlign:"center"}}>{EMOJI[wild.name]||"❓"}</div>
-        <div style={{fontSize:"15px",fontWeight:"bold",color:C.amber,marginTop:"4px"}}>{wild.name} {wild.gender} Lv.{wild.level}</div>
+      <div style={{textAlign:"center",marginBottom:"16px"}}>
+        <PkmnSprite name={wild.name} size={80} style={{margin:"0 auto 8px",display:"block"}}/>
+        <div style={{fontSize:"18px",fontWeight:"700",color:"#fbbf24",marginBottom:"4px"}}>{wild.name} {wild.gender} Lv.{wild.level}</div>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:"10px"}}>
-        <HPB label="Você"     hp={playerHP} max={4} color={C.green}/>
-        <HPB label={wild.name} hp={wildHP}  max={4} color={C.red}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px",marginBottom:"14px"}}>
+        <HPB label="Você" hp={playerHP} max={4} color="#10b981"/>
+        <HPB label={wild.name} hp={wildHP} max={4} color="#ef4444"/>
       </div>
-      <div style={{background:"#161b22",borderRadius:"6px",padding:"8px 10px",minHeight:"62px",maxHeight:"80px",overflowY:"auto",border:`1px solid ${C.bor}`,marginBottom:"10px"}}>
-        {log.slice(-4).map((l,i)=><div key={i} style={{fontSize:"11px",color:C.white,marginBottom:"2px"}}>▸ {l}</div>)}
+      <div style={{background:"#111827",border:"1px solid #374151",borderRadius:"10px",padding:"12px",minHeight:"80px",maxHeight:"100px",overflowY:"auto",marginBottom:"14px"}}>
+        {log.slice(-4).map((l,i)=><div key={i} style={{fontSize:"13px",color:"#d1d5db",marginBottom:"4px",lineHeight:"1.4"}}>▸ {l}</div>)}
       </div>
       {!over?(
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px"}}>
-          <ABt icon="⚔️" label="Atacar"   sub="1 dano (crítico 2)" color={C.red}  onClick={()=>onAction("attack")}/>
-          <ABt icon="🛡️" label="Esquivar" sub="Esquiva+contra-ataque" color={C.blue} onClick={()=>onAction("evade")}/>
-          <ABt icon="🔴" label="Capturar" sub={`Chance: ${hint}`} color={wildHP<=2?C.green:C.gray} onClick={()=>onAction("catch")}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"8px"}}>
+          <button className="btn action-btn" onClick={()=>onAction("attack")} style={{background:"#7f1d1d",color:"#fca5a5",border:"none"}}>⚔️ Atacar</button>
+          <button className="btn action-btn" onClick={()=>onAction("evade")} style={{background:"#1e3a5f",color:"#93c5fd",border:"none"}}>🛡️ Esquivar</button>
+          <button className="btn action-btn" onClick={()=>onAction("catch")} style={{background:wildHP<=2?"#064e3b":"#1f2937",color:wildHP<=2?"#6ee7b7":"#9ca3af",border:`1px solid ${wildHP<=2?"#10b981":"#374151"}`}}>🔴 Capturar<br/><span style={{fontSize:"11px",opacity:.8}}>({hint})</span></button>
         </div>
       ):(
-        <div style={{textAlign:"center",paddingTop:"4px"}}>
-          <div style={{fontSize:"14px",fontWeight:"bold",marginBottom:"12px",color:result==="caught"?C.green:result==="fainted"?C.amber:C.red}}>
+        <div style={{textAlign:"center",paddingTop:"8px"}}>
+          <div style={{fontSize:"18px",fontWeight:"700",marginBottom:"16px",color:result==="caught"?"#10b981":result==="fainted"?"#f59e0b":"#ef4444"}}>
             {result==="caught"&&`✓ ${wild.name} capturado!`}
-            {result==="fainted"&&`${wild.name} desmaiou!`}
+            {result==="fainted"&&`${wild.name} desmaiou.`}
             {result==="escaped"&&`${wild.name} fugiu...`}
             {result==="lost"&&"Você foi derrotado..."}
           </div>
-          <Btn onClick={onBack} label="VOLTAR" color={C.gdim}/>
+          <Btn onClick={onBack} label="Voltar"/>
         </div>
       )}
     </div>
@@ -1146,122 +1624,119 @@ function DowsingScreen({dowsing,onChoose,onBack}){
   return (
     <div style={{animation:"slideUp .2s"}}>
       <TBar title="DOWSING MCHN" onBack={dowsing.over?onBack:null}/>
-      <div style={{textAlign:"center",minHeight:"40px",margin:"8px 0 14px"}}>
-        {!dowsing.over&&!dowsing.hint&&<div style={{fontSize:"11px",color:C.gray}}>Escolha um arbusto</div>}
-        {dowsing.hint&&!dowsing.over&&<div style={{fontSize:"13px",color:C.yellow,fontWeight:"bold"}}>{dowsing.hint}</div>}
-        {dowsing.over&&<div style={{fontSize:"13px",fontWeight:"bold",color:dowsing.result==="found"?C.green:C.red}}>{dowsing.result==="found"?`✓ ${dowsing.item.name} encontrado!`:"Nada encontrado..."}</div>}
+      <div style={{textAlign:"center",minHeight:"50px",marginBottom:"16px"}}>
+        {!dowsing.over&&!dowsing.hint&&<div style={{fontSize:"14px",color:"#9ca3af"}}>Escolha um arbusto para investigar</div>}
+        {dowsing.hint&&!dowsing.over&&<div style={{fontSize:"16px",fontWeight:"700",color:"#f59e0b"}}>{dowsing.hint}</div>}
+        {dowsing.over&&<div style={{fontSize:"18px",fontWeight:"700",color:dowsing.result==="found"?"#10b981":"#ef4444"}}>{dowsing.result==="found"?`✓ ${dowsing.item.name} encontrado!`:"Nada encontrado..."}</div>}
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px",margin:"0 4px 16px"}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"10px",marginBottom:"16px"}}>
         {[0,1,2,3,4,5].map(i=>{
-          const ok=dowsing.over&&i===dowsing.pos, bad=dowsing.over&&i===dowsing.chosen&&i!==dowsing.pos, hint=!dowsing.over&&i===dowsing.chosen;
+          const ok=dowsing.over&&i===dowsing.pos;
+          const bad=dowsing.over&&i===dowsing.chosen&&i!==dowsing.pos;
+          const hint=!dowsing.over&&i===dowsing.chosen;
           const dis=dowsing.over||(dowsing.attempts>0&&i===dowsing.chosen);
-          return <button key={i} className={`btn${dis?"":" bush"}`} onClick={()=>onChoose(i)} disabled={dis} style={{padding:"20px 0",borderRadius:"8px",fontSize:"22px",background:ok?"#1a2e1a":bad?"#2d1a1a":hint?"#1c2128":"#161b22",border:`1px solid ${ok?C.green:bad?C.red:hint?C.yellow:C.bor}`,cursor:dis?"default":"pointer",opacity:dis&&!ok&&!bad?0.5:1}}>{ok?"✨":bad?"✗":hint?"❓":"🌿"}</button>;
+          return (
+            <button key={i} className="btn bush" onClick={()=>onChoose(i)} disabled={dis}
+              style={{padding:"20px 0",borderRadius:"12px",fontSize:"28px",background:ok?"#064e3b":bad?"#7f1d1d":hint?"#1c2e4a":"#1f2937",border:`2px solid ${ok?"#10b981":bad?"#ef4444":hint?"#60a5fa":"#374151"}`,cursor:dis?"default":"pointer",opacity:dis&&!ok&&!bad?.5:1,transition:"all .12s"}}>
+              {ok?"✨":bad?"✗":hint?"❓":"🌿"}
+            </button>
+          );
         })}
       </div>
-      {dowsing.over&&<Btn onClick={onBack} label="VOLTAR" color={C.gdim}/>}
+      {dowsing.over&&<Btn onClick={onBack} label="Voltar"/>}
     </div>
   );
 }
 
 function StatsScreen({pw,stroll,onBack,onToggleNat,onReset,onResetConfirm,onResetCancel,confirmReset,onSaveTrainer}){
-  const [editTrainer,setEditTrainer] = React.useState(false);
-  const [t,setT] = React.useState({...pw.trainer});
+  const [editTrainer,setEditTrainer]=React.useState(false);
+  const [t,setT]=React.useState({...pw.trainer});
   const f=(k,v)=>setT(s=>({...s,[k]:v}));
   return (
-    <div style={{animation:"slideUp .2s",overflowY:"auto",maxHeight:"280px"}}>
+    <div style={{animation:"slideUp .2s"}}>
       <TBar title="ESTATÍSTICAS" onBack={onBack}/>
-      <div style={{marginTop:"6px"}}>
-        <div style={{background:"#161b22",border:`1px solid ${C.bor}`,borderRadius:"8px",padding:"10px 12px",marginBottom:"10px"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"}}>
-            <div style={{fontSize:"9px",color:C.gray,letterSpacing:"2px"}}>TREINADOR</div>
-            <button className="btn" onClick={()=>{setT({...pw.trainer});setEditTrainer(e=>!e);}} style={{padding:"3px 8px",borderRadius:"4px",background:"#21262d",border:`1px solid ${C.bor}`,color:C.gray,fontSize:"10px"}}>
-              {editTrainer?"Cancelar":"Editar"}
-            </button>
-          </div>
-          {!editTrainer ? (
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div>
-                <div style={{fontSize:"15px",fontWeight:"bold",color:pw.trainer.name?C.white:C.gray}}>{pw.trainer.name||"(sem nome)"}</div>
-                <div style={{fontSize:"10px",color:C.gray,marginTop:"2px"}}>{pw.trainer.game} - {pw.trainer.lang}</div>
-              </div>
-              <div style={{textAlign:"right"}}>
-                <div style={{fontSize:"10px",color:C.gray}}>TID: <span style={{color:C.white}}>{String(pw.trainer.tid).padStart(5,"0")}</span></div>
-                <div style={{fontSize:"10px",color:C.gray}}>SID: <span style={{color:C.white}}>{String(pw.trainer.sid).padStart(5,"0")}</span></div>
-              </div>
-            </div>
-          ) : (
-            <div>
-              <Rw label="Nome"><Inp v={t.name} on={v=>f("name",v)} ph="Nome do treinador"/></Rw>
-              <Rw label="TID"><Inp v={String(t.tid)} on={v=>f("tid",v)} ph="0-65535" type="number"/></Rw>
-              <Rw label="SID"><Inp v={String(t.sid)} on={v=>f("sid",v)} ph="0-65535" type="number"/></Rw>
-              <Rw label="Jogo">
-                <select value={t.game} onChange={e=>f("game",e.target.value)} style={{width:"100%",padding:"6px 8px",background:"#21262d",border:`1px solid ${C.bor}`,borderRadius:"5px",color:C.white,fontFamily:"'Courier New',monospace",fontSize:"12px",outline:"none"}}>
-                  <option>HeartGold</option>
-                  <option>SoulSilver</option>
-                </select>
-              </Rw>
-              <Rw label="Idioma">
-                <select value={t.lang} onChange={e=>f("lang",e.target.value)} style={{width:"100%",padding:"6px 8px",background:"#21262d",border:`1px solid ${C.bor}`,borderRadius:"5px",color:C.white,fontFamily:"'Courier New',monospace",fontSize:"12px",outline:"none"}}>
-                  <option>Portugues</option>
-                  <option>Ingles</option>
-                  <option>Espanhol</option>
-                  <option>Japones</option>
-                  <option>Frances</option>
-                  <option>Alemao</option>
-                  <option>Italiano</option>
-                </select>
-              </Rw>
-              <button className="btn" onClick={()=>{onSaveTrainer({name:t.name,tid:parseInt(t.tid)||0,sid:parseInt(t.sid)||0,game:t.game,lang:t.lang});setEditTrainer(false);}} style={{width:"100%",padding:"8px",borderRadius:"6px",background:C.gdim,border:"none",color:"#fff",fontSize:"11px",fontWeight:"bold",marginTop:"4px"}}>
-                Salvar treinador
-              </button>
-            </div>
-          )}
+
+      {/* Trainer card */}
+      <div style={{background:"#1f2937",border:"1px solid #374151",borderRadius:"12px",padding:"16px",marginBottom:"16px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}}>
+          <div style={{fontSize:"13px",fontWeight:"600",color:"#6b7280",textTransform:"uppercase",letterSpacing:"1px"}}>Treinador</div>
+          <button className="btn" onClick={()=>{setT({...pw.trainer});setEditTrainer(e=>!e);}}
+            style={{padding:"6px 14px",background:"#374151",border:"none",borderRadius:"8px",color:"#f9fafb",fontSize:"13px",cursor:"pointer"}}>{editTrainer?"Cancelar":"✏️ Editar"}</button>
         </div>
-        <SR label="Watts acumulados"    v={`${pw.totalWatts.toLocaleString()}W`} c={C.yellow}/>
-        <SR label="Passos totais"       v={(pw.lifetimeSteps||0).toLocaleString()}  c={C.blue}/>
-        <SR label="Rotas desbloqueadas" v={`${pw.unlockedRoutes.length} / ${ROUTES.filter(r=>!r.event).length}`} c={C.green}/>
-        <SR label="Passeios realizados" v={pw.sessions.length}                     c={C.purple}/>
-        <SR label="Pokédex Nacional"    v={pw.hasNationalDex?"Obtida":"Nao obtida"} c={pw.hasNationalDex?C.green:C.gray}/>
-        <button className="btn" onClick={onToggleNat} style={{width:"100%",padding:"8px",borderRadius:"6px",background:"#161b22",border:`1px solid ${C.bor}`,color:C.gray,fontSize:"10px",marginTop:"6px",marginBottom:"4px"}}>
-          {pw.hasNationalDex?"Remover Pokedex Nacional":"Marcar Pokedex Nacional"}
-        </button>
-        {!confirmReset ? (
-          <button className="btn" onClick={onReset} style={{width:"100%",padding:"8px",borderRadius:"6px",background:"#161b22",border:"1px solid #7f1d1d",color:"#ef4444",fontSize:"10px",marginBottom:"8px"}}>
-            Apagar save e comecar novo
-          </button>
-        ) : (
-          <div style={{background:"#2d1a1a",border:"1px solid #7f1d1d",borderRadius:"8px",padding:"12px",marginBottom:"8px",textAlign:"center"}}>
-            <div style={{fontSize:"11px",color:"#ef4444",fontWeight:"bold",marginBottom:"8px"}}>Tem certeza? Isso apaga TODO o progresso.</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
-              <button className="btn" onClick={onResetConfirm} style={{padding:"8px",borderRadius:"6px",background:"#7f1d1d",border:"none",color:"#fff",fontSize:"11px",fontWeight:"bold"}}>
-                Confirmar
-              </button>
-              <button className="btn" onClick={onResetCancel} style={{padding:"8px",borderRadius:"6px",background:"#21262d",border:`1px solid ${C.bor}`,color:C.gray,fontSize:"11px"}}>
-                Cancelar
-              </button>
+        {!editTrainer?(
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:"20px",fontWeight:"700",color:"#f9fafb",marginBottom:"4px"}}>{pw.trainer.name||"(sem nome)"}</div>
+              <div style={{fontSize:"13px",color:"#6b7280"}}>{pw.trainer.game} · {pw.trainer.lang}</div>
+            </div>
+            <div style={{textAlign:"right",fontSize:"13px",color:"#6b7280"}}>
+              <div>TID: <span style={{color:"#f9fafb",fontWeight:"600"}}>{String(pw.trainer.tid).padStart(5,"0")}</span></div>
+              <div style={{marginTop:"3px"}}>SID: <span style={{color:"#f9fafb",fontWeight:"600"}}>{String(pw.trainer.sid).padStart(5,"0")}</span></div>
+            </div>
+          </div>
+        ):(
+          <div>
+            <Rw label="Nome"><Inp v={t.name} on={v=>f("name",v)} ph="Nome do treinador"/></Rw>
+            <Rw label="TID"><Inp v={String(t.tid)} on={v=>f("tid",v)} ph="0–65535" type="number"/></Rw>
+            <Rw label="SID"><Inp v={String(t.sid)} on={v=>f("sid",v)} ph="0–65535" type="number"/></Rw>
+            <Rw label="Jogo">
+              <select value={t.game} onChange={e=>f("game",e.target.value)}>
+                <option>HeartGold</option><option>SoulSilver</option>
+              </select>
+            </Rw>
+            <Rw label="Idioma">
+              <select value={t.lang} onChange={e=>f("lang",e.target.value)}>
+                <option>Português</option><option>Inglês</option><option>Espanhol</option><option>Japonês</option><option>Francês</option><option>Alemão</option><option>Italiano</option>
+              </select>
+            </Rw>
+            <div style={{marginTop:"12px"}}>
+              <Btn onClick={()=>{onSaveTrainer({name:t.name,tid:parseInt(t.tid)||0,sid:parseInt(t.sid)||0,game:t.game,lang:t.lang});setEditTrainer(false);}} label="✓ Salvar Treinador"/>
             </div>
           </div>
         )}
-
-        {stroll&&<>
-          <Dv label="PASSEIO ATUAL"/>
-          <SR label="Rota"   v={stroll.route.name}/>
-          <SR label="Passos" v={stroll.steps.toLocaleString()}/>
-          <SR label="Watts disponíveis" v={`${stroll.watts}W`} c={C.yellow}/>
-          <SR label="Pokémon capturados" v={`${stroll.capturedPokemon.length}/3`} c={C.purple}/>
-          <SR label="Itens encontrados"  v={`${stroll.foundItems.length}/3`}      c={C.green}/>
-        </>}
-
-        {pw.sessions.length>0&&<>
-          <Dv label="ÚLTIMOS PASSEIOS"/>
-          {pw.sessions.slice(0,6).map(s=>(
-            <div key={s.id} style={{background:"#161b22",borderRadius:"6px",padding:"8px 10px",marginBottom:"5px",border:`1px solid ${C.bor}`}}>
-              <div style={{fontSize:"11px",color:C.white,marginBottom:"3px"}}>{s.pokemon} · {s.route}<span style={{float:"right",fontSize:"10px",color:C.gray}}>{s.date}</span></div>
-              <div style={{fontSize:"10px",color:C.gray}}>{s.steps.toLocaleString()} passos · +{s.wattsReturned}W · +{s.expAfter-s.expBefore} EXP{s.leveledUp&&<span style={{color:C.green}}> · ↑Lv.{s.levelAfter}</span>}</div>
-            </div>
-          ))}
-        </>}
       </div>
+
+      {/* Stats */}
+      <div style={{background:"#1f2937",border:"1px solid #374151",borderRadius:"12px",padding:"4px 0",marginBottom:"16px"}}>
+        <SR label="Watts acumulados" v={`${pw.totalWatts.toLocaleString()}W`} c="#f59e0b"/>
+        <SR label="Passos totais" v={(pw.lifetimeSteps||0).toLocaleString()} c="#60a5fa"/>
+        <SR label="Rotas desbloqueadas" v={`${pw.unlockedRoutes.length} / ${ROUTES.filter(r=>!r.event).length}`} c="#10b981"/>
+        <SR label="Passeios realizados" v={pw.sessions.length} c="#a78bfa"/>
+        <SR label="Pokédex Nacional" v={pw.hasNationalDex?"✓ Obtida":"✗ Não obtida"} c={pw.hasNationalDex?"#10b981":"#6b7280"}/>
+      </div>
+
+      {/* Actions */}
+      <div style={{display:"flex",flexDirection:"column",gap:"10px",marginBottom:"16px"}}>
+        <button className="btn" onClick={onToggleNat}
+          style={{width:"100%",padding:"14px",background:"transparent",border:"1px solid #374151",borderRadius:"12px",color:"#9ca3af",fontSize:"15px",cursor:"pointer"}}>
+          {pw.hasNationalDex?"🔄 Remover Pokédex Nacional":"🔓 Marcar Pokédex Nacional"}
+        </button>
+        {!confirmReset?(
+          <button className="btn danger-btn" onClick={onReset}>🗑 Apagar save e começar novo</button>
+        ):(
+          <div style={{background:"rgba(127,29,29,.3)",border:"2px solid #ef4444",borderRadius:"12px",padding:"16px"}}>
+            <div style={{fontSize:"14px",color:"#fca5a5",fontWeight:"600",textAlign:"center",marginBottom:"14px",lineHeight:"1.4"}}>Tem certeza? Isso apaga TODO o progresso.</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+              <button className="btn" onClick={onResetConfirm} style={{padding:"14px",background:"#7f1d1d",border:"none",borderRadius:"10px",color:"#fff",fontSize:"15px",fontWeight:"700",cursor:"pointer"}}>✓ Confirmar</button>
+              <button className="btn" onClick={onResetCancel} style={{padding:"14px",background:"#374151",border:"none",borderRadius:"10px",color:"#f9fafb",fontSize:"15px",cursor:"pointer"}}>✗ Cancelar</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Sessions */}
+      {pw.sessions.length>0&&<>
+        <Dv label="Últimos Passeios"/>
+        {pw.sessions.slice(0,6).map(s=>(
+          <div key={s.id} style={{background:"#1f2937",border:"1px solid #374151",borderRadius:"10px",padding:"14px",marginBottom:"8px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:"6px"}}>
+              <span style={{fontSize:"15px",fontWeight:"600",color:"#f9fafb"}}>{s.pokemon}</span>
+              <span style={{fontSize:"12px",color:"#6b7280"}}>{s.date}</span>
+            </div>
+            <div style={{fontSize:"13px",color:"#6b7280",lineHeight:"1.6"}}>{s.route} · {s.steps.toLocaleString()} passos · +{s.wattsReturned}W · +{s.expAfter-s.expBefore} EXP{s.leveledUp&&<span style={{color:"#10b981",fontWeight:"700"}}> · ↑Lv.{s.levelAfter}</span>}</div>
+          </div>
+        ))}
+      </>}
     </div>
   );
 }
@@ -1270,88 +1745,48 @@ function ResultScreen({result,onNew}){
   const {sess:s,newTotal,newUnlocked,prevTotal}=result;
   const newRoutes=ROUTES.filter(r=>r.watts<=newTotal&&r.watts>prevTotal&&!r.event&&(!r.nat||result.newNat));
   return (
-    <div style={{animation:"slideUp .3s",overflowY:"auto",maxHeight:"280px"}}>
-      <div style={{textAlign:"center",marginBottom:"14px"}}>
-        <div style={{fontSize:"28px"}}>🏠</div>
-        <div style={{fontSize:"12px",color:C.green,letterSpacing:"2px",marginTop:"4px"}}>RETORNOU AO DS</div>
+    <div style={{animation:"slideUp .3s"}}>
+      <div style={{textAlign:"center",marginBottom:"20px"}}>
+        <div style={{fontSize:"56px",marginBottom:"10px"}}>🏠</div>
+        <div style={{fontSize:"22px",fontWeight:"700",color:"#10b981",marginBottom:"6px"}}>Retornou ao DS!</div>
+        <div style={{fontSize:"14px",color:"#6b7280"}}>Atualize os dados no PKHeX</div>
       </div>
-      <Grp label="ATUALIZE NO PKHEX">
-        <SR label="EXP"        v={`${s.expBefore.toLocaleString()} → ${s.expAfter.toLocaleString()}`} c={C.amber}/>
-        {s.leveledUp&&<SR label="LEVEL UP!" v={`Lv.${s.levelBefore} → Lv.${s.levelAfter}`} c={C.green}/>}
-        <SR label="Felicidade" v={`${s.hapBefore} → ${s.hapAfter}`} c={C.pink}/>
-      </Grp>
-      <Grp label="WATTS">
-        <SR label="Gerados (passos)"  v={`+${s.wattsFromSteps}W`}  c={C.gray}/>
-        {s.balloonWatts>0&&<SR label="Balão coletado"  v={`+${s.balloonWatts}W`} c={C.green}/>}
-        {s.wattsSpent>0  &&<SR label="Gastos (minijogos)" v={`−${s.wattsSpent}W`} c={C.red}/>}
-        <SR label="Retornados ao DS"  v={`+${s.wattsReturned}W`}  c={C.yellow}/>
-        <SR label="Total acumulado"   v={`${newTotal.toLocaleString()}W`} c={C.yellow}/>
-      </Grp>
+
+      <div style={{background:"#1f2937",border:"1px solid #374151",borderRadius:"12px",padding:"4px 0",marginBottom:"14px"}}>
+        <SR label="EXP" v={`${s.expBefore.toLocaleString()} → ${s.expAfter.toLocaleString()}`} c="#f59e0b"/>
+        {s.leveledUp&&<SR label="LEVEL UP!" v={`Lv.${s.levelBefore} → Lv.${s.levelAfter}`} c="#10b981"/>}
+        <SR label="Felicidade" v={`${s.hapBefore} → ${s.hapAfter}`} c="#f472b6"/>
+        <SR label="Watts Retornados" v={`+${s.wattsReturned}W`} c="#f59e0b"/>
+        <SR label="Total Acumulado" v={`${newTotal.toLocaleString()}W`} c="#f59e0b"/>
+      </div>
+
       {(s.capturedPokemon.length>0||s.foundItems.length>0)&&(
-        <Grp label="ADICIONE AO JOGO">
-          {s.capturedPokemon.map((p,i)=><SR key={i} label="Pokémon" v={`${EMOJI[p.name]||"🔵"} {p.name} ${p.gender} Lv.${p.level}`} c={C.purple}/>)}
-          {s.foundItems.map((it,i)=><SR key={i} label="Item" v={it.name||it} c={C.green}/>)}
-        </Grp>
-      )}
-      {newRoutes.length>0&&(
-        <div style={{background:"#1a2e1a",border:`1px solid ${C.green}`,borderRadius:"8px",padding:"10px",marginBottom:"10px"}}>
-          <div style={{fontSize:"11px",color:C.green,fontWeight:"bold",marginBottom:"4px"}}>🔓 Nova rota desbloqueada!</div>
-          {newRoutes.map(r=><div key={r.id} style={{fontSize:"11px",color:C.white}}>▸ {r.name}</div>)}
+        <div style={{background:"#1f2937",border:"1px solid #374151",borderRadius:"12px",padding:"14px",marginBottom:"14px"}}>
+          <div style={{fontSize:"13px",fontWeight:"600",color:"#6b7280",textTransform:"uppercase",letterSpacing:"1px",marginBottom:"10px"}}>Adicionar ao Jogo</div>
+          {s.capturedPokemon.map((p,i)=>(
+            <div key={i} style={{padding:"8px 0",borderBottom:"1px solid #374151",fontSize:"14px",color:p.shiny?"#f59e0b":"#a78bfa"}}>
+              <PkmnSprite name={p.name} size={24} shiny={p.shiny} style={{verticalAlign:"middle",marginRight:4}}/> {p.name} {p.gender} Lv.{p.level} — PID: {p.pid}{p.shiny?" SHINY! ⭐":""}
+            </div>
+          ))}
+          {s.foundItems.map((it,i)=>(
+            <div key={i} style={{padding:"8px 0",borderBottom:"1px solid #374151",fontSize:"14px",color:"#34d399"}}>
+              🎒 {it.name||it}
+            </div>
+          ))}
         </div>
       )}
-      <Btn onClick={onNew} label="▶ NOVO PASSEIO" color={C.gdim}/>
+
+      {newRoutes.length>0&&(
+        <div style={{background:"rgba(16,185,129,.1)",border:"1px solid #10b981",borderRadius:"12px",padding:"14px",marginBottom:"14px"}}>
+          <div style={{fontSize:"13px",fontWeight:"700",color:"#10b981",marginBottom:"8px"}}>🔓 Nova(s) rota(s) desbloqueada(s)!</div>
+          {newRoutes.map(r=><div key={r.id} style={{fontSize:"14px",color:"#f9fafb",marginBottom:"4px"}}>▸ {r.name}</div>)}
+        </div>
+      )}
+
+      <Btn onClick={onNew} label="▶ Novo Passeio"/>
     </div>
   );
 }
-
-
-// ═══════════════════════════════════════════════════════════════
-// EMOJIS
-// ═══════════════════════════════════════════════════════════════
-const EMOJI={
-  Croconaw:"🐊",Pidgey:"🐦",Sentret:"🐿️",Doduo:"🦤","Nidoran♀":"💜","Nidoran♂":"💙",
-  Kangaskhan:"🦘",Wobbuffet:"😶",Bellsprout:"🌱",Venonat:"🪲",Paras:"🍄",
-  Oddish:"🌿",Spearow:"🦅",Magby:"🔥",Onix:"🪨",Machop:"💪",Ponyta:"🐴",
-  Hoothoot:"🦉",Geodude:"🪨",Psyduck:"🐥",Staryu:"⭐",Slowpoke:"🌸",Poliwag:"💧",
-  Sunkern:"🌻",Wooper:"💧",Elekid:"⚡",Magnemite:"🔩",Murkrow:"🐦‍⬛",Rattata:"🐭",
-  Duskull:"💀",Misdreavus:"👻",Gastly:"👻",Zubat:"🦇",Dratini:"🐲",Gyarados:"🐉",
-  Goldeen:"🐟",Magikarp:"🐟",Tentacool:"🪼",Munchlax:"🐻",Lickitung:"👅",
-  Chansey:"🩷",Ekans:"🐍",Meowth:"🐱",Roselia:"🌹",Electrike:"⚡",Shroomish:"🍄",
-  Zigzagoon:"🦡",Taillow:"🐦",Wurmple:"🐛",Corsola:"🪸",Wingull:"🐦",Corphish:"🦀",
-  Wailmer:"🐳",Torkoal:"🐢",Slugma:"🌋",Numel:"🌋",Breloom:"🍄",Tropius:"🦕",
-  Seedot:"🌰",Absol:"🌑",Shuppet:"👻",Sableye:"💎",Pachirisu:"⚡",Buizel:"🦦",
-  Bidoof:"🦫",Starly:"🐦",Sneasel:"❄️",Smoochum:"💋",Swinub:"🐗",Snorunt:"❄️",
-  Scyther:"🦗",Heracross:"🪲",Caterpie:"🐛",Weedle:"🐛",Metapod:"🫘",Kakuna:"🫘",
-  Relicanth:"🐟",Lapras:"🐬",Golduck:"🦆",Slowbro:"🌸",Marill:"💙",Lanturn:"💡",
-  Octillery:"🐙",Krabby:"🦀",Shellder:"🐚",Blissey:"🩷",Togekiss:"🕊️",Togepi:"🥚",
-  Clefairy:"⭐",Jigglypuff:"🎤","Mr. Mime":"🤡",Jynx:"💋",Dunsparce:"🐍",
-  Pikachu:"⚡",Pichu:"⚡",Spinda:"🐼",Smeargle:"🎨",Tyrogue:"🥊",Mankey:"🐒",
-  Meditite:"🧘",Miltank:"🐄",Porygon:"💾",Finneon:"🐟",Lumineon:"🐟",Bronzor:"🪙",
-  Horsea:"🐴",Beldum:"🤖",Eevee:"🦊",Skitty:"🐱",Plusle:"⚡",Minun:"⚡",
-  Snubbull:"🐶",Jirachi:"⭐",Starmie:"⭐",Cleffa:"⭐",
-};
-
-// ═══════════════════════════════════════════════════════════════
-// MICRO-COMPONENTES
-// ═══════════════════════════════════════════════════════════════
-const STitle=({title,color})=><div style={{fontSize:"10px",color:color||C.blue,letterSpacing:"2px",marginBottom:"12px",textAlign:"center"}}>{title}</div>;
-const TBar=({title,onBack})=>(
-  <div style={{display:"flex",alignItems:"center",gap:"8px",marginBottom:"8px"}}>
-    {onBack&&<button className="btn" onClick={onBack} style={{padding:"4px 8px",borderRadius:"5px",background:"#21262d",border:`1px solid ${C.bor}`,color:C.gray,fontSize:"11px"}}>◀</button>}
-    <span style={{fontSize:"11px",color:C.blue,letterSpacing:"2px",fontWeight:"bold"}}>{title}</span>
-  </div>
-);
-const Grp=({label,children})=><div style={{marginBottom:"10px"}}><div style={{fontSize:"9px",color:C.gray,letterSpacing:"2px",marginBottom:"5px"}}>{label}</div>{children}</div>;
-const Dv=({label})=><div style={{fontSize:"9px",color:C.gray,letterSpacing:"2px",padding:"8px 0 4px"}}>{label}</div>;
-const Rw=({label,children})=><div style={{display:"flex",alignItems:"center",gap:"8px",marginBottom:"5px"}}><div style={{fontSize:"10px",color:C.gray,minWidth:"82px"}}>{label}</div><div style={{flex:1}}>{children}</div></div>;
-const Inp=({v,on,type="text",ph=""})=><input type={type} value={v} placeholder={ph} onChange={e=>on(e.target.value)} style={{width:"100%",padding:"6px 8px",background:"#21262d",border:`1px solid ${C.bor}`,borderRadius:"5px",color:C.white,fontFamily:"'Courier New',monospace",fontSize:"12px",boxSizing:"border-box",outline:"none"}}/>;
-const Btn=({onClick,label,disabled,color,bor})=><button className="btn" onClick={onClick} disabled={disabled} style={{display:"block",width:"100%",padding:"11px",borderRadius:"8px",background:disabled?"#21262d":(color||C.gdim),border:`1px solid ${bor||(disabled?"#21262d":(color||C.gdim))}`,color:disabled?C.gray:"#fff",fontSize:"12px",letterSpacing:"2px",fontWeight:"bold"}}>{label}</button>;
-const Pill=({label,value,color})=><div style={{background:"#161b22",border:`1px solid ${C.bor}`,borderRadius:"6px",padding:"6px 4px",textAlign:"center"}}><div style={{fontSize:"9px",color:C.gray,marginBottom:"2px"}}>{label}</div><div style={{fontSize:"12px",color:color||C.white,fontWeight:"bold"}}>{value}</div></div>;
-const ISlot=({label,count,max,value,color})=><div style={{flex:1,background:"#161b22",border:`1px solid ${C.bor}`,borderRadius:"6px",padding:"5px 4px",textAlign:"center"}}><div style={{fontSize:"9px",color:C.gray,marginBottom:"2px"}}>{label}</div><div style={{fontSize:"11px",color:color||C.white,fontWeight:"bold"}}>{value!==undefined?value:`${count}/${max}`}</div></div>;
-const SR=({label,v,c})=><div style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid #21262d",fontSize:"11px"}}><span style={{color:C.gray}}>{label}</span><span style={{color:c||C.white,fontWeight:"bold"}}>{v}</span></div>;
-const HPB=({label,hp,max,color})=><div><div style={{display:"flex",justifyContent:"space-between",fontSize:"10px",marginBottom:"3px"}}><span style={{color:C.gray}}>{label}</span><span style={{color}}>{hp}/{max}</span></div><div style={{background:"#21262d",borderRadius:"3px",height:"7px",overflow:"hidden"}}><div style={{width:`${(hp/max)*100}%`,height:"100%",background:color,borderRadius:"3px",transition:"width .3s"}}/></div></div>;
-const MBtn=({icon,label,sub,disabled,onClick,color})=><button className="btn" onClick={onClick} disabled={disabled} style={{padding:"10px 12px",borderRadius:"8px",textAlign:"left",width:"100%",background:disabled?"#0d1117":"#161b22",border:`1px solid ${disabled?"#21262d":color||C.bor}`,opacity:disabled?0.45:1}}><div style={{display:"flex",alignItems:"center",gap:"10px"}}><span style={{fontSize:"18px"}}>{icon}</span><div><div style={{fontSize:"12px",color:disabled?C.gray:C.white,fontWeight:"bold"}}>{label}</div><div style={{fontSize:"10px",color:disabled?C.red:C.gray,marginTop:"1px"}}>{sub}</div></div></div></button>;
-const ABt=({icon,label,sub,onClick,color})=><button className="btn" onClick={onClick} style={{padding:"10px 4px",borderRadius:"8px",textAlign:"center",background:"#161b22",border:`1px solid ${color||C.bor}`}}><div style={{fontSize:"20px"}}>{icon}</div><div style={{fontSize:"10px",color:C.white,fontWeight:"bold",marginTop:"3px"}}>{label}</div><div style={{fontSize:"9px",color:C.gray,marginTop:"1px"}}>{sub}</div></button>;
 
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
